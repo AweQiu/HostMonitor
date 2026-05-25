@@ -1,4 +1,4 @@
-package com.hostmonitor.backend;
+package com.ylh.backend;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

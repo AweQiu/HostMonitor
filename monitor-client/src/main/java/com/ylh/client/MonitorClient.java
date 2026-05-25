@@ -1,32 +1,49 @@
 package com.ylh.client;
 
-import com.hostmonitor.client.network.NetworkClient;
 import com.ylh.client.models.HostInfo;
 import com.ylh.client.models.HostMetric;
+import com.ylh.client.network.NetworkClient;
 import com.ylh.client.utils.CollectionUtil;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * 监控客户端主入口
  * <p>
- * 启动后采集当前主机的静态信息和实时性能指标，并输出到控制台。
+ * 启动后连接 Socket 服务器，采集当前主机的静态信息和实时性能指标，并通过网络发送给服务器。
  * </p>
  */
 public class MonitorClient {
 
-    public static void main(String[] args) throws InterruptedException {
-        NetworkClient.connect();
-        
-        HostInfo hostInfo = new HostInfo();
-        HostMetric metric = new HostMetric();
+    public static void main(String[] args) {
+        NetworkClient client = new NetworkClient();
 
-        hostInfo = CollectionUtil.collectHostInfo();
-        NetworkClient.send(hostInfo.getBytes());
-        while (true) {
-            metric = CollectionUtil.collectMetric();
-            NetworkClient.send(metric.getBytes());
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Shutting down...");
+            client.disconnect();
+        }));
 
-            Thread.sleep(1000);
+        try {
+            client.connect();
+            System.out.println("Connected to " + client.getHost() + ":" + client.getPort());
+
+            HostInfo hostInfo = CollectionUtil.collectHostInfo();
+            client.send(hostInfo.toString().getBytes(StandardCharsets.UTF_8));
+            System.out.println("Host info sent.");
+
+            while (true) {
+                HostMetric metric = CollectionUtil.collectMetric();
+                client.send(metric.toString().getBytes(StandardCharsets.UTF_8));
+
+                Thread.sleep(1000);
+            }
+        } catch (IOException e) {
+            System.err.println("Connection error: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            client.disconnect();
         }
-        NetworkClient.disconnect();
     }
 }
