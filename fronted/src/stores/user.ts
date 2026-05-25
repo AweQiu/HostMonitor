@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import request from '@/utils/request'
 
 export interface UserInfo {
   id: number
@@ -33,39 +34,15 @@ export const useUserStore = defineStore('user', () => {
   }
 
   async function login(username: string, password: string): Promise<boolean> {
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      })
-      const data = await response.json()
-      if (data.code === 200) {
-        setToken(data.data.token)
-        setUserInfo(data.data.user)
-        return true
-      }
-      throw new Error(data.message || '登录失败')
-    } catch (error: any) {
-      throw new Error(error.message || '网络错误，请稍后重试')
-    }
+    const data = await request.post('/auth/login', { username, password })
+    setToken(data.data.token)
+    setUserInfo(data.data.user)
+    return true
   }
 
   async function register(username: string, email: string, password: string): Promise<boolean> {
-    try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, email, password })
-      })
-      const data = await response.json()
-      if (data.code === 200) {
-        return true
-      }
-      throw new Error(data.message || '注册失败')
-    } catch (error: any) {
-      throw new Error(error.message || '网络错误，请稍后重试')
-    }
+    await request.post('/auth/register', { username, email, password })
+    return true
   }
 
   return {

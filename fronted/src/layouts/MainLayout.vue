@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, watch, h } from 'vue'
+import { ref, watch, h, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useTabsStore, type TabItem } from '@/stores/tabs'
+import request from '@/utils/request'
 import {
   DashboardOutlined,
   DesktopOutlined,
@@ -13,7 +14,8 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ReloadOutlined,
-  CloseOutlined
+  CloseOutlined,
+  GroupOutlined
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -28,6 +30,7 @@ const menuItems = [
   { key: 'dashboard', icon: () => h(DashboardOutlined), label: '仪表盘', path: '/dashboard' },
   { key: 'hosts', icon: () => h(DesktopOutlined), label: '主机管理', path: '/hosts' },
   { key: 'users', icon: () => h(TeamOutlined), label: '用户管理', path: '/users' },
+  { key: 'groups', icon: () => h(GroupOutlined), label: '组织管理', path: '/groups' },
   { key: 'settings', icon: () => h(SettingOutlined), label: '系统设置', path: '/settings' }
 ]
 
@@ -35,6 +38,7 @@ const tabKeyMap: Record<string, string> = {
   '/dashboard': 'dashboard',
   '/hosts': 'hosts',
   '/users': 'users',
+  '/groups': 'groups',
   '/settings': 'settings'
 }
 
@@ -42,6 +46,7 @@ const tabTitleMap: Record<string, string> = {
   dashboard: '仪表盘',
   hosts: '主机管理',
   users: '用户管理',
+  groups: '组织管理',
   settings: '系统设置'
 }
 
@@ -62,6 +67,29 @@ watch(
   },
   { immediate: true }
 )
+
+async function loadUserInfo() {
+  if (userStore.token && !userStore.userInfo) {
+    try {
+      const data = await request.get('/users/me')
+      userStore.setUserInfo({
+        id: data.data.id,
+        username: data.data.username,
+        email: data.data.email,
+        avatar: data.data.avatar,
+        status: data.data.status,
+        groupId: data.data.groupId,
+        roles: data.data.roles
+      })
+    } catch {
+      // ignore
+    }
+  }
+}
+
+onMounted(() => {
+  loadUserInfo()
+})
 
 function handleMenuClick({ key }: { key: string }) {
   const item = menuItems.find(m => m.key === key)
