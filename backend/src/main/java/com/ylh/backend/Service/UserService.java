@@ -42,7 +42,7 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         return count(new LambdaQueryWrapper<User>().eq(User::getEmail, email)) > 0;
     }
 
-    public Page<User> pageByRole(Long groupId, String keyword, int pageNum, int pageSize) {
+    public Page<User> pageByRole(Long groupId, String roleKey, String keyword, int pageNum, int pageSize) {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         if (groupId != null) {
             wrapper.eq(User::getGroupId, groupId);
@@ -51,6 +51,25 @@ public class UserService extends ServiceImpl<UserMapper, User> {
             wrapper.and(w -> w.like(User::getUsername, keyword).or().like(User::getEmail, keyword));
         }
         wrapper.orderByDesc(User::getCreateTime);
+
+        if (roleKey != null && !roleKey.isBlank()) {
+            Role role = roleMapper.selectOne(
+                    new LambdaQueryWrapper<Role>().eq(Role::getRoleKey, roleKey)
+            );
+            if (role != null) {
+                List<UserRole> userRoles = userRoleMapper.selectList(
+                        new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, role.getId())
+                );
+                List<Long> userIds = userRoles.stream().map(UserRole::getUserId).collect(Collectors.toList());
+                if (userIds.isEmpty()) {
+                    return new Page<>(pageNum, pageSize, 0);
+                }
+                wrapper.in(User::getId, userIds);
+            } else {
+                return new Page<>(pageNum, pageSize, 0);
+            }
+        }
+
         return page(new Page<>(pageNum, pageSize), wrapper);
     }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import request from '@/utils/request'
 
 interface GroupRecord {
@@ -226,10 +226,16 @@ onMounted(() => {
   <div class="groups-page">
     <div class="page-header">
       <span></span>
-      <a-button type="primary" @click="showCreateModal">
-        <PlusOutlined />
-        创建分组
-      </a-button>
+      <a-space>
+        <a-button @click="fetchGroups">
+          <ReloadOutlined />
+          刷新
+        </a-button>
+        <a-button type="primary" @click="showCreateModal">
+          <PlusOutlined />
+          创建分组
+        </a-button>
+      </a-space>
     </div>
 
     <a-table

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { message, type FormInstance } from 'ant-design-vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useUserStore } from '@/stores/user'
 import request from '@/utils/request'
 
@@ -35,6 +35,11 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
+const filterRole = ref<string | undefined>(undefined)
+const filterGroup = ref<number | undefined>(undefined)
+
+const roleFilterOptions = ref<{ value: string; label: string }[]>([])
+const groupFilterOptions = ref<{ value: number; label: string }[]>([])
 
 const isSuperAdmin = ref(false)
 const isGroupAdmin = ref(false)
@@ -95,6 +100,12 @@ async function fetchUsers() {
     if (keyword.value) {
       params.keyword = keyword.value
     }
+    if (filterRole.value) {
+      params.roleKey = filterRole.value
+    }
+    if (filterGroup.value != null) {
+      params.groupId = String(filterGroup.value)
+    }
     const data = await request.get('/users', { params })
     userData.value = data.data.records
     total.value = data.data.total
@@ -113,6 +124,30 @@ async function loadCurrentUserRoles() {
   } catch {
     // ignore
   }
+}
+
+async function loadFilterOptions() {
+  try {
+    const [rolesData, groupsData] = await Promise.all([
+      request.get('/users/roles'),
+      request.get('/users/groups')
+    ])
+    roleFilterOptions.value = (rolesData.data || []).map((r: any) => ({
+      value: r.roleKey,
+      label: r.roleName
+    }))
+    groupFilterOptions.value = (groupsData.data || []).map((g: any) => ({
+      value: g.id,
+      label: g.groupName
+    }))
+  } catch {
+    // ignore
+  }
+}
+
+function handleFilterChange() {
+  currentPage.value = 1
+  fetchUsers()
 }
 
 function handleSearch() {
@@ -222,6 +257,7 @@ function canManageUser(record: UserRecord): boolean {
 
 onMounted(() => {
   loadCurrentUserRoles()
+  loadFilterOptions()
   fetchUsers()
 })
 </script>
@@ -229,17 +265,48 @@ onMounted(() => {
 <template>
   <div class="users-page">
     <div class="page-header">
-      <a-input-search
-        v-model:value="keyword"
-        placeholder="搜索用户名或邮箱"
-        style="width: 300px"
-        @search="handleSearch"
-        allow-clear
-      />
-      <a-button type="primary" @click="showCreateModal" v-if="isSuperAdmin || isGroupAdmin">
-        <PlusOutlined />
-        添加用户
-      </a-button>
+      <a-space>
+        <a-input-search
+          v-model:value="keyword"
+          placeholder="搜索用户名或邮箱"
+          style="width: 220px"
+          @search="handleSearch"
+          allow-clear
+        />
+        <a-select
+          v-model:value="filterRole"
+          placeholder="按角色筛选"
+          style="width: 140px"
+          allow-clear
+          @change="handleFilterChange"
+        >
+          <a-select-option v-for="opt in roleFilterOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </a-select-option>
+        </a-select>
+        <a-select
+          v-if="isSuperAdmin"
+          v-model:value="filterGroup"
+          placeholder="按分组筛选"
+          style="width: 140px"
+          allow-clear
+          @change="handleFilterChange"
+        >
+          <a-select-option v-for="opt in groupFilterOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </a-select-option>
+        </a-select>
+      </a-space>
+      <a-space>
+        <a-button @click="fetchUsers">
+          <ReloadOutlined />
+          刷新
+        </a-button>
+        <a-button type="primary" @click="showCreateModal" v-if="isSuperAdmin || isGroupAdmin">
+          <PlusOutlined />
+          添加用户
+        </a-button>
+      </a-space>
     </div>
 
     <a-table

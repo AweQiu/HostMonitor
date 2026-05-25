@@ -7,6 +7,7 @@ import com.ylh.backend.Dto.*;
 import com.ylh.backend.Entity.Role;
 import com.ylh.backend.Entity.User;
 import com.ylh.backend.Entity.UserRole;
+import com.ylh.backend.Entity.Group;
 import com.ylh.backend.Mapper.RoleMapper;
 import com.ylh.backend.Mapper.UserRoleMapper;
 import com.ylh.backend.Service.GroupService;
@@ -42,11 +43,25 @@ public class UserController {
         return Result.success(userService.toVO(user));
     }
 
+    @GetMapping("/roles")
+    public Result<List<Role>> listRoles() {
+        checkAdminPermission();
+        return Result.success(roleMapper.selectList(null));
+    }
+
+    @GetMapping("/groups")
+    public Result<List<Group>> listGroups() {
+        checkAdminPermission();
+        return Result.success(groupService.list());
+    }
+
     @GetMapping
     public Result<Page<UserVO>> listUsers(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String keyword) {
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String roleKey,
+            @RequestParam(required = false) Long groupId) {
         Long currentUserId = getCurrentUserId();
         List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
         User currentUser = userService.getById(currentUserId);
@@ -64,9 +79,11 @@ public class UserController {
                 return Result.error(403, "您未分配到任何组，无法管理用户");
             }
             filterGroupId = currentUser.getGroupId();
+        } else if (isSuperAdmin && groupId != null) {
+            filterGroupId = groupId;
         }
 
-        Page<User> userPage = userService.pageByRole(filterGroupId, keyword, page, size);
+        Page<User> userPage = userService.pageByRole(filterGroupId, roleKey, keyword, page, size);
         Page<UserVO> voPage = new Page<>(userPage.getCurrent(), userPage.getSize(), userPage.getTotal());
         voPage.setRecords(userService.toVOList(userPage.getRecords()));
         return Result.success(voPage);
