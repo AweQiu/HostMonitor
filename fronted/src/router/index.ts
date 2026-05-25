@@ -55,9 +55,8 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  const isDev = import.meta.env.DEV
   const token = localStorage.getItem('token')
-  if (to.meta.requiresAuth && !token && !isDev) {
+  if (to.meta.requiresAuth && !token) {
     next({ name: 'login' })
   } else if ((to.name === 'login' || to.name === 'register') && token) {
     next({ path: '/dashboard' })
