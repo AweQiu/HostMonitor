@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -32,6 +33,25 @@ public class UserService extends ServiceImpl<UserMapper, User> {
 
     public User getByEmail(String email) {
         return getOne(new LambdaQueryWrapper<User>().eq(User::getEmail, email));
+    }
+
+    public User getByAgentKey(String agentKey) {
+        return getOne(new LambdaQueryWrapper<User>().eq(User::getAgentKey, agentKey));
+    }
+
+    public String generateAgentKey() {
+        return UUID.randomUUID().toString();
+    }
+
+    public String resetAgentKey(Long userId) {
+        User user = getById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        String newKey = generateAgentKey();
+        user.setAgentKey(newKey);
+        updateById(user);
+        return newKey;
     }
 
     public boolean existsByUsername(String username) {

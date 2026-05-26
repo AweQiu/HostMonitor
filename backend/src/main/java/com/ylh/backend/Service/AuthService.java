@@ -62,6 +62,7 @@ public class AuthService {
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setAgentKey(userService.generateAgentKey());
         user.setStatus(1);
         userService.save(user);
 
@@ -84,6 +85,7 @@ public class AuthService {
         dto.setAvatar(user.getAvatar());
         dto.setStatus(user.getStatus());
         dto.setGroupId(user.getGroupId());
+        dto.setAgentKey(user.getAgentKey());
 
         List<UserRole> userRoles = userRoleMapper.selectList(
                 new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, user.getId())

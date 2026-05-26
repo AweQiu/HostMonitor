@@ -1,36 +1,97 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { message } from 'ant-design-vue'
 import { SearchOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import request from '@/utils/request'
+
+interface HostRecord {
+  id: number
+  hostname: string
+  ipAddress: string
+  cpuModel: string | null
+  cpuCores: number | null
+  memoryTotal: number | null
+  diskTotal: number | null
+  osName: string | null
+  osVersion: string | null
+  status: number
+  lastHeartbeat: string | null
+}
 
 const searchText = ref('')
 const loading = ref(false)
+const hostData = ref<HostRecord[]>([])
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(10)
 
 const columns = [
-  { title: '主机名', dataIndex: 'hostname', key: 'hostname' },
-  { title: 'IP 地址', dataIndex: 'ip', key: 'ip' },
-  { title: '操作系统', dataIndex: 'os', key: 'os' },
-  { title: 'CPU 使用率', dataIndex: 'cpu', key: 'cpu' },
-  { title: '内存使用率', dataIndex: 'memory', key: 'memory' },
-  { title: '磁盘使用率', dataIndex: 'disk', key: 'disk' },
-  { title: '状态', dataIndex: 'status', key: 'status' },
-  { title: '操作', key: 'action', width: 180 }
+  { title: '主机名', dataIndex: 'hostname', key: 'hostname', width: 140 },
+  { title: 'IP 地址', dataIndex: 'ipAddress', key: 'ipAddress', width: 140 },
+  { title: '操作系统', key: 'os', width: 180 },
+  { title: 'CPU', key: 'cpu', width: 200, ellipsis: true },
+  { title: '内存总量', dataIndex: 'memoryTotal', key: 'memoryTotal', width: 110, align: 'right' as const },
+  { title: '硬盘空间', dataIndex: 'diskTotal', key: 'diskTotal', width: 110, align: 'right' as const },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 80, align: 'center' as const },
+  { title: '操作', key: 'action', width: 180, fixed: 'right' as const }
 ]
 
-const hostData = ref([
-  { key: '1', hostname: 'server-01', ip: '192.168.1.101', os: 'CentOS 7.9', cpu: 23, memory: 45, disk: 56, status: 'online' },
-  { key: '2', hostname: 'server-02', ip: '192.168.1.102', os: 'Ubuntu 22.04', cpu: 67, memory: 78, disk: 82, status: 'warning' },
-  { key: '3', hostname: 'server-03', ip: '192.168.1.103', os: 'Debian 12', cpu: 12, memory: 32, disk: 41, status: 'online' },
-  { key: '4', hostname: 'server-04', ip: '192.168.1.104', os: 'Windows Server 2022', cpu: 0, memory: 0, disk: 0, status: 'offline' },
-  { key: '5', hostname: 'server-05', ip: '192.168.1.105', os: 'CentOS 8', cpu: 89, memory: 91, disk: 73, status: 'warning' },
-  { key: '6', hostname: 'server-06', ip: '192.168.1.106', os: 'Ubuntu 20.04', cpu: 34, memory: 52, disk: 38, status: 'online' }
-])
+function formatBytes(bytes: number | null): string {
+  if (bytes === null || bytes === undefined) return '-'
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i]
+}
+
+async function fetchHosts() {
+  loading.value = true
+  try {
+    const params: Record<string, string> = {
+      page: String(currentPage.value),
+      size: String(pageSize.value)
+    }
+    if (searchText.value) {
+      params.keyword = searchText.value
+    }
+    const data = await request.get('/hosts', { params })
+    hostData.value = data.data.records
+    total.value = data.data.total
+  } catch {
+    // error handled by interceptor
+  } finally {
+    loading.value = false
+  }
+}
+
+function handleSearch() {
+  currentPage.value = 1
+  fetchHosts()
+}
+
+function handleTableChange(pagination: { current: number; pageSize: number }) {
+  currentPage.value = pagination.current
+  pageSize.value = pagination.pageSize
+  fetchHosts()
+}
 
 function handleRefresh() {
-  loading.value = true
-  setTimeout(() => {
-    loading.value = false
-  }, 1000)
+  fetchHosts()
 }
+
+async function handleDelete(id: number) {
+  try {
+    await request.delete(`/hosts/${id}`)
+    message.success('删除成功')
+    fetchHosts()
+  } catch {
+    // error handled by interceptor
+  }
+}
+
+onMounted(() => {
+  fetchHosts()
+})
 </script>
 
 <template>
@@ -40,11 +101,9 @@ function handleRefresh() {
         v-model:value="searchText"
         placeholder="搜索主机名或 IP 地址"
         style="width: 300px"
-      >
-        <template #prefix>
-          <SearchOutlined style="color: #bfbfbf" />
-        </template>
-      </a-input-search>
+        @search="handleSearch"
+        allow-clear
+      />
       <a-space>
         <a-button @click="handleRefresh" :loading="loading">
           <ReloadOutlined />
@@ -61,27 +120,41 @@ function handleRefresh() {
       :columns="columns"
       :data-source="hostData"
       :loading="loading"
-      :pagination="{ pageSize: 10, showTotal: (total: number) => `共 ${total} 台主机` }"
+      :pagination="{
+        current: currentPage,
+        pageSize: pageSize,
+        total: total,
+        showTotal: (t: number) => `共 ${t} 台主机`,
+        showSizeChanger: true
+      }"
+      row-key="id"
+      :scroll="{ x: 1200 }"
+      @change="handleTableChange"
     >
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'cpu' || column.key === 'memory' || column.key === 'disk'">
-          <a-progress
-            :percent="record[column.key]"
-            :status="record[column.key] > 80 ? 'exception' : 'active'"
-            size="small"
-          />
+        <template v-if="column.key === 'cpu'">
+          {{ record.cpuModel || '-' }}{{ record.cpuCores ? ' ' + record.cpuCores + '核' : '' }}
+        </template>
+        <template v-if="column.key === 'memoryTotal'">
+          {{ formatBytes(record.memoryTotal) }}
+        </template>
+        <template v-if="column.key === 'diskTotal'">
+          {{ formatBytes(record.diskTotal) }}
+        </template>
+        <template v-if="column.key === 'os'">
+          {{ record.osName || '-' }}{{ record.osVersion ? ' ' + record.osVersion : '' }}
         </template>
         <template v-if="column.key === 'status'">
           <a-badge
-            :status="record.status === 'online' ? 'success' : record.status === 'warning' ? 'warning' : 'default'"
-            :text="record.status === 'online' ? '在线' : record.status === 'warning' ? '告警' : '离线'"
+            :status="record.status === 1 ? 'success' : 'default'"
+            :text="record.status === 1 ? '在线' : '离线'"
           />
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
             <a-button type="link" size="small">详情</a-button>
             <a-button type="link" size="small">监控</a-button>
-            <a-popconfirm title="确定删除该主机？" ok-text="确定" cancel-text="取消">
+            <a-popconfirm title="确定删除该主机？" ok-text="确定" cancel-text="取消" @confirm="handleDelete(record.id)">
               <a-button type="link" size="small" danger>删除</a-button>
             </a-popconfirm>
           </a-space>

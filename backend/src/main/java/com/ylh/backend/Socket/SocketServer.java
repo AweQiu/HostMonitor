@@ -1,5 +1,8 @@
 package com.ylh.backend.Socket;
 
+import com.ylh.backend.Mapper.HostMetricMapper;
+import com.ylh.backend.Service.HostInfoService;
+import com.ylh.backend.Service.UserService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -27,11 +30,22 @@ public class SocketServer {
     @Value("${socket.port:12345}")
     private int port;
 
+    private final UserService userService;
+    private final HostInfoService hostInfoService;
+    private final HostMetricMapper hostMetricMapper;
+
     private ServerSocket serverSocket;
     private volatile boolean running = false;
     private final AtomicLong connectionIdGenerator = new AtomicLong(0);
     private final ExecutorService executor = Executors.newFixedThreadPool(MAX_THREADS);
     private final ConcurrentHashMap<Long, ClientHandler> clients = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Long> userConnectionMap = new ConcurrentHashMap<>();
+
+    public SocketServer(UserService userService, HostInfoService hostInfoService, HostMetricMapper hostMetricMapper) {
+        this.userService = userService;
+        this.hostInfoService = hostInfoService;
+        this.hostMetricMapper = hostMetricMapper;
+    }
 
     @PostConstruct
     public void start() {
@@ -55,7 +69,9 @@ public class SocketServer {
                     Socket clientSocket = serverSocket.accept();
                     clientSocket.setSoTimeout(5000);
                     long connectionId = connectionIdGenerator.incrementAndGet();
-                    ClientHandler handler = new ClientHandler(clientSocket, connectionId);
+                    ClientHandler handler = new ClientHandler(
+                            clientSocket, connectionId, userService, hostInfoService, hostMetricMapper, this
+                    );
                     clients.put(connectionId, handler);
                     log.info("New connection #{} from {}, total clients: {}",
                             connectionId, clientSocket.getRemoteSocketAddress(), clients.size());
@@ -99,6 +115,32 @@ public class SocketServer {
         }
     }
 
+    public void registerUserConnection(Long userId, Long connectionId) {
+        if (userId == null) return;
+        userConnectionMap.put(userId, connectionId);
+        log.info("User {} bound to connection #{}", userId, connectionId);
+    }
+
+    public void kickExistingConnection(Long userId, Long newConnectionId) {
+        if (userId == null) return;
+        Long existingConnId = userConnectionMap.get(userId);
+        if (existingConnId != null && !existingConnId.equals(newConnectionId)) {
+            ClientHandler existingHandler = clients.get(existingConnId);
+            if (existingHandler != null) {
+                log.info("Kicking existing connection #{} for user {} (new connection #{})",
+                        existingConnId, userId, newConnectionId);
+                existingHandler.closeQuietly();
+            }
+            userConnectionMap.remove(userId, existingConnId);
+        }
+    }
+
+    public void removeUserConnection(Long userId, Long connectionId) {
+        if (userId == null) return;
+        userConnectionMap.remove(userId, connectionId);
+        log.info("User {} connection #{} removed from mapping", userId, connectionId);
+    }
+
     @PreDestroy
     public void stop() {
         running = false;
@@ -108,6 +150,7 @@ public class SocketServer {
             handler.closeQuietly();
         }
         clients.clear();
+        userConnectionMap.clear();
 
         try {
             if (serverSocket != null && !serverSocket.isClosed()) {

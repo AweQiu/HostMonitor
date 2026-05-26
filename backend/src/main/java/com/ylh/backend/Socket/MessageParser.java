@@ -12,9 +12,6 @@ import java.util.regex.Pattern;
 
 public final class MessageParser {
 
-    private static final long TEST_HOST_ID = 1L;
-    private static final long TEST_USER_ID = 1L;
-
     private static final Pattern STRING_FIELD = Pattern.compile("(\\w+)='([^']*)'");
     private static final Pattern NUMERIC_FIELD = Pattern.compile("(\\w+)=([\\d.]+)%?");
     private static final Pattern DATETIME_FIELD = Pattern.compile("collectTime=([\\dT:.\\-]+)");
@@ -27,8 +24,6 @@ public final class MessageParser {
         Map<String, String> numericFields = extractFields(message, NUMERIC_FIELD);
 
         HostInfo host = new HostInfo();
-        host.setId(TEST_HOST_ID);
-        host.setUserId(TEST_USER_ID);
         host.setHostname(stringFields.get("hostname"));
         host.setIpAddress(stringFields.get("ipAddress"));
         host.setCpuModel(stringFields.get("cpuModel"));
@@ -37,8 +32,6 @@ public final class MessageParser {
         host.setCpuCores(parseInt(numericFields.get("cpuCores")));
         host.setMemoryTotal(parseLong(numericFields.get("memoryTotal")));
         host.setDiskTotal(parseLong(numericFields.get("diskTotal")));
-        host.setStatus(1);
-        host.setLastHeartbeat(LocalDateTime.now());
         return host;
     }
 
@@ -47,8 +40,6 @@ public final class MessageParser {
         Matcher dtMatcher = DATETIME_FIELD.matcher(message);
 
         HostMetric metric = new HostMetric();
-        metric.setId(TEST_HOST_ID);
-        metric.setHostId(TEST_HOST_ID);
         metric.setCpuUsage(parseBigDecimal(numericFields.get("cpuUsage")));
         metric.setMemoryUsage(parseBigDecimal(numericFields.get("memoryUsage")));
         metric.setDiskUsage(parseBigDecimal(numericFields.get("diskUsage")));

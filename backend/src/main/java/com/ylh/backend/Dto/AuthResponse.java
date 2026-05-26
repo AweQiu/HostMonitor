@@ -17,6 +17,7 @@ public class AuthResponse {
         private String avatar;
         private Integer status;
         private Long groupId;
+        private String agentKey;
         private List<String> roles;
     }
 }

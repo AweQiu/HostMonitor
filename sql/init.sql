@@ -20,6 +20,7 @@ CREATE TABLE `user` (
   `username` VARCHAR(50) NOT NULL,
   `email` VARCHAR(100) NOT NULL,
   `password` VARCHAR(255) NOT NULL,
+  `agent_key` VARCHAR(64) NOT NULL,
   `avatar` VARCHAR(255),
   `status` TINYINT NOT NULL DEFAULT 1,
   `group_id` BIGINT,
@@ -29,6 +30,7 @@ CREATE TABLE `user` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_username` (`username`),
   UNIQUE KEY `uk_email` (`email`),
+  UNIQUE KEY `uk_agent_key` (`agent_key`),
   KEY `idx_group_id` (`group_id`),
   CONSTRAINT `fk_user_group` FOREIGN KEY (`group_id`) REFERENCES `group` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -147,8 +149,8 @@ INSERT INTO `group` (`group_name`, `description`) VALUES
 ('超级管理员组', '系统最高权限组，创建后不可添加或删除成员');
 
 -- 初始化超管账号（密码 123456 的 BCrypt 加密）
-INSERT INTO `user` (`username`, `email`, `password`, `status`, `group_id`) VALUES
-('admin', '1@example.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 1, LAST_INSERT_ID());
+INSERT INTO `user` (`username`, `email`, `password`, `agent_key`, `status`, `group_id`) VALUES
+('admin', '1@example.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 1, LAST_INSERT_ID());
 
 -- 为超管分配 SUPER_ADMIN 角色
 INSERT INTO `user_role` (`user_id`, `role_id`) VALUES

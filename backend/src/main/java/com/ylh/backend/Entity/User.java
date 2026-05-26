@@ -15,6 +15,7 @@ public class User {
     private String username;
     private String email;
     private String password;
+    private String agentKey;
     private String avatar;
     private Integer status;
     private Long groupId;
