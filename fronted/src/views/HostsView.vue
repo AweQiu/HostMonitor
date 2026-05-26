@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { SearchOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { ReloadOutlined } from '@ant-design/icons-vue'
 import request from '@/utils/request'
+import { useUserStore } from '@/stores/user'
 
 interface HostRecord {
   id: number
@@ -18,12 +19,18 @@ interface HostRecord {
   lastHeartbeat: string | null
 }
 
+const userStore = useUserStore()
 const searchText = ref('')
 const loading = ref(false)
 const hostData = ref<HostRecord[]>([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
+
+const isAdmin = computed(() => {
+  const roles = userStore.userInfo?.roles || []
+  return roles.includes('SUPER_ADMIN') || roles.includes('GROUP_ADMIN')
+})
 
 const columns = [
   { title: '主机名', dataIndex: 'hostname', key: 'hostname', width: 140 },
@@ -104,16 +111,10 @@ onMounted(() => {
         @search="handleSearch"
         allow-clear
       />
-      <a-space>
-        <a-button @click="handleRefresh" :loading="loading">
-          <ReloadOutlined />
-          刷新
-        </a-button>
-        <a-button type="primary">
-          <PlusOutlined />
-          添加主机
-        </a-button>
-      </a-space>
+      <a-button @click="handleRefresh" :loading="loading">
+        <ReloadOutlined />
+        刷新
+      </a-button>
     </div>
 
     <a-table
@@ -154,7 +155,7 @@ onMounted(() => {
           <a-space>
             <a-button type="link" size="small">详情</a-button>
             <a-button type="link" size="small">监控</a-button>
-            <a-popconfirm title="确定删除该主机？" ok-text="确定" cancel-text="取消" @confirm="handleDelete(record.id)">
+            <a-popconfirm v-if="isAdmin" title="确定删除该主机？" ok-text="确定" cancel-text="取消" @confirm="handleDelete(record.id)">
               <a-button type="link" size="small" danger>删除</a-button>
             </a-popconfirm>
           </a-space>

@@ -118,6 +118,7 @@ public class UserController {
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setAgentKey(userService.generateAgentKey());
         user.setStatus(request.getStatus() != null ? request.getStatus() : 1);
         user.setGroupId(request.getGroupId());
         userService.save(user);
