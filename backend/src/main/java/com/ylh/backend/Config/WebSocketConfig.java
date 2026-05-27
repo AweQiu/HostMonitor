@@ -3,6 +3,8 @@ package com.ylh.backend.Config;
 import com.ylh.backend.Socket.ScreenWebSocketHandler;
 import com.ylh.backend.Socket.ScreenStreamManager;
 import com.ylh.backend.Service.HostInfoService;
+import com.ylh.backend.Service.UserService;
+import com.ylh.backend.Config.JwtUtil;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -21,15 +23,20 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     private final ScreenStreamManager screenStreamManager;
     private final HostInfoService hostInfoService;
+    private final UserService userService;
+    private final JwtUtil jwtUtil;
 
-    public WebSocketConfig(ScreenStreamManager screenStreamManager, HostInfoService hostInfoService) {
+    public WebSocketConfig(ScreenStreamManager screenStreamManager, HostInfoService hostInfoService,
+                           UserService userService, JwtUtil jwtUtil) {
         this.screenStreamManager = screenStreamManager;
         this.hostInfoService = hostInfoService;
+        this.userService = userService;
+        this.jwtUtil = jwtUtil;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(new ScreenWebSocketHandler(screenStreamManager, hostInfoService), "/ws/screen/{hostId}")
+        registry.addHandler(new ScreenWebSocketHandler(screenStreamManager, hostInfoService, userService, jwtUtil), "/ws/screen/{hostId}")
                 .addInterceptors(new ScreenHandshakeInterceptor())
                 .setAllowedOrigins("*");
     }

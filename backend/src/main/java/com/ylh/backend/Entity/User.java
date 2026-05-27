@@ -18,6 +18,7 @@ public class User {
     private String agentKey;
     private String avatar;
     private Integer status;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long groupId;
 
     @TableField(fill = FieldFill.INSERT)

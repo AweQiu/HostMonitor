@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ylh.backend.Common.Result;
 import com.ylh.backend.Dto.HostVO;
 import com.ylh.backend.Entity.HostInfo;
+import com.ylh.backend.Entity.User;
 import com.ylh.backend.Mapper.HostMetricMapper;
 import com.ylh.backend.Service.HostInfoService;
 import com.ylh.backend.Service.UserService;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -33,7 +35,43 @@ public class HostInfoController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword) {
 
-        Page<HostInfo> pageResult = hostInfoService.pageList(page, size, keyword);
+        Long currentUserId = getCurrentUserId();
+        List<String> roles = userService.getUserRoleKeys(currentUserId);
+        boolean isSuperAdmin = roles.contains("SUPER_ADMIN");
+        boolean isGroupAdmin = roles.contains("GROUP_ADMIN");
+
+        Page<HostInfo> pageResult;
+
+        if (isSuperAdmin) {
+            pageResult = hostInfoService.pageList(page, size, keyword);
+        } else if (isGroupAdmin) {
+            User currentUser = userService.getById(currentUserId);
+            if (currentUser.getGroupId() == null) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("records", List.of());
+                data.put("total", 0);
+                data.put("page", page);
+                data.put("size", size);
+                return Result.success(data);
+            }
+            List<User> groupMembers = userService.list(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                            .eq(User::getGroupId, currentUser.getGroupId())
+            );
+            List<Long> memberIds = groupMembers.stream().map(User::getId).collect(Collectors.toList());
+            if (memberIds.isEmpty()) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("records", List.of());
+                data.put("total", 0);
+                data.put("page", page);
+                data.put("size", size);
+                return Result.success(data);
+            }
+            pageResult = hostInfoService.pageListByUserIds(page, size, keyword, memberIds);
+        } else {
+            pageResult = hostInfoService.pageListByUserId(page, size, keyword, currentUserId);
+        }
+
         List<HostVO> records = hostInfoService.toVOList(pageResult.getRecords());
 
         Map<String, Object> data = new HashMap<>();
@@ -47,6 +85,10 @@ public class HostInfoController {
 
     @GetMapping("/{id}")
     public Result<HostVO> getHost(@PathVariable Long id) {
+        if (!checkHostAccess(id)) {
+            return Result.error(403, "无权查看该主机");
+        }
+
         HostInfo host = hostInfoService.getById(id);
         if (host == null) {
             return Result.error("主机不存在");
@@ -56,7 +98,9 @@ public class HostInfoController {
 
     @DeleteMapping("/{id}")
     public Result<Void> deleteHost(@PathVariable Long id) {
-        checkMonitorPermission();
+        if (!checkHostAccess(id)) {
+            return Result.error(403, "无权删除该主机");
+        }
 
         HostInfo host = hostInfoService.getById(id);
         if (host == null) {
@@ -73,12 +117,30 @@ public class HostInfoController {
         return Result.success("删除成功", null);
     }
 
-    private void checkMonitorPermission() {
+    private boolean checkHostAccess(Long hostId) {
         Long currentUserId = getCurrentUserId();
         List<String> roles = userService.getUserRoleKeys(currentUserId);
-        if (!roles.contains("SUPER_ADMIN") && !roles.contains("GROUP_ADMIN")) {
-            throw new RuntimeException("没有主机管理权限");
+        boolean isSuperAdmin = roles.contains("SUPER_ADMIN");
+        boolean isGroupAdmin = roles.contains("GROUP_ADMIN");
+
+        if (isSuperAdmin) {
+            return true;
         }
+
+        if (isGroupAdmin) {
+            User currentUser = userService.getById(currentUserId);
+            if (currentUser.getGroupId() == null) {
+                return false;
+            }
+            List<User> groupMembers = userService.list(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                            .eq(User::getGroupId, currentUser.getGroupId())
+            );
+            List<Long> memberIds = groupMembers.stream().map(User::getId).collect(Collectors.toList());
+            return hostInfoService.isHostOwnedByUsers(hostId, memberIds);
+        }
+
+        return hostInfoService.isHostOwnedBy(hostId, currentUserId);
     }
 
     private Long getCurrentUserId() {

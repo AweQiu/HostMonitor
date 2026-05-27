@@ -56,6 +56,12 @@ const router = createRouter({
           meta: { requiresAuth: true, title: '组织管理' }
         },
         {
+          path: 'notifications',
+          name: 'notifications',
+          component: () => import('../views/NotificationsView.vue'),
+          meta: { requiresAuth: true, title: '通知管理' }
+        },
+        {
           path: 'settings',
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),

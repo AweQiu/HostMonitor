@@ -8,4 +8,5 @@ public class UpdateUserRequest {
     private String password;
     private Integer status;
     private Long groupId;
+    private Boolean clearGroupId;
 }

@@ -30,8 +30,6 @@ public class GroupController {
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
 
-    private static final Long ADMIN_GROUP_ID = 1L;
-
     @GetMapping
     public Result<List<GroupVO>> listGroups() {
         checkSuperAdminPermission();
@@ -100,10 +98,6 @@ public class GroupController {
     public Result<Void> deleteGroup(@PathVariable Long id) {
         checkSuperAdminPermission();
 
-        if (ADMIN_GROUP_ID.equals(id)) {
-            return Result.error("超级管理员组不可删除");
-        }
-
         Group group = groupService.getById(id);
         if (group == null) {
             return Result.error("分组不存在");
@@ -141,10 +135,6 @@ public class GroupController {
     public Result<Void> addMember(@PathVariable Long id, @PathVariable Long userId) {
         checkSuperAdminPermission();
 
-        if (ADMIN_GROUP_ID.equals(id)) {
-            return Result.error("超级管理员组不可添加成员");
-        }
-
         Group group = groupService.getById(id);
         if (group == null) {
             return Result.error("分组不存在");
@@ -172,10 +162,6 @@ public class GroupController {
     @DeleteMapping("/{id}/members/{userId}")
     public Result<Void> removeMember(@PathVariable Long id, @PathVariable Long userId) {
         checkSuperAdminPermission();
-
-        if (ADMIN_GROUP_ID.equals(id)) {
-            return Result.error("超级管理员组不可移除成员");
-        }
 
         List<String> targetRoles = userService.getUserRoleKeys(userId);
         if (targetRoles.contains("SUPER_ADMIN")) {
@@ -237,6 +223,17 @@ public class GroupController {
         user.setGroupId(groupId);
         userService.updateById(user);
 
+        Role userRole = roleMapper.selectOne(
+                new LambdaQueryWrapper<Role>().eq(Role::getRoleKey, "USER")
+        );
+        if (userRole != null) {
+            userRoleMapper.delete(
+                    new LambdaQueryWrapper<UserRole>()
+                            .eq(UserRole::getUserId, userId)
+                            .eq(UserRole::getRoleId, userRole.getId())
+            );
+        }
+
         Role groupAdminRole = roleMapper.selectOne(
                 new LambdaQueryWrapper<Role>().eq(Role::getRoleKey, "GROUP_ADMIN")
         );
@@ -247,10 +244,10 @@ public class GroupController {
                             .eq(UserRole::getRoleId, groupAdminRole.getId())
             );
             if (existingCount == 0) {
-                UserRole userRole = new UserRole();
-                userRole.setUserId(userId);
-                userRole.setRoleId(groupAdminRole.getId());
-                userRoleMapper.insert(userRole);
+                UserRole ur = new UserRole();
+                ur.setUserId(userId);
+                ur.setRoleId(groupAdminRole.getId());
+                userRoleMapper.insert(ur);
             }
         }
     }

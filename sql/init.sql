@@ -130,6 +130,40 @@ CREATE TABLE `host_metric` (
   CONSTRAINT `fk_metric_host` FOREIGN KEY (`host_id`) REFERENCES `host` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 通知表
+CREATE TABLE `notification` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `title` VARCHAR(100) NOT NULL,
+  `content` TEXT NOT NULL,
+  `sender_id` BIGINT NOT NULL,
+  `send_type` TINYINT NOT NULL COMMENT '1-全体 2-分组 3-指定用户',
+  `target_group_id` BIGINT DEFAULT NULL,
+  `target_user_ids` TEXT DEFAULT NULL COMMENT 'JSON数组，如[1,2,3]',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '0-草稿 1-已发送',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `send_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_sender_id` (`sender_id`),
+  KEY `idx_send_time` (`send_time`),
+  CONSTRAINT `fk_notif_sender` FOREIGN KEY (`sender_id`) REFERENCES `user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 用户通知关系表
+CREATE TABLE `user_notification` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT NOT NULL,
+  `notification_id` BIGINT NOT NULL,
+  `is_read` TINYINT NOT NULL DEFAULT 0 COMMENT '0-未读 1-已读',
+  `read_time` DATETIME DEFAULT NULL,
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_notif` (`user_id`, `notification_id`),
+  KEY `idx_user_read` (`user_id`, `is_read`),
+  KEY `idx_notif_id` (`notification_id`),
+  CONSTRAINT `fk_un_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`),
+  CONSTRAINT `fk_un_notif` FOREIGN KEY (`notification_id`) REFERENCES `notification` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- =============================================
 -- 初始化数据
 -- =============================================
@@ -140,13 +174,9 @@ INSERT INTO `role` (`role_key`, `role_name`, `description`) VALUES
 ('GROUP_ADMIN', '组管理员', '管理本组用户和资源'),
 ('USER', '普通用户', '基本操作权限');
 
--- 初始化管理员组（不可添加或删除成员的超级管理组）
-INSERT INTO `group` (`group_name`, `description`) VALUES
-('超级管理员组', '系统最高权限组，创建后不可添加或删除成员');
-
 -- 初始化超管账号（密码 123456 的 BCrypt 加密）
-INSERT INTO `user` (`username`, `email`, `password`, `agent_key`, `status`, `group_id`) VALUES
-('admin', '1@example.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 1, LAST_INSERT_ID());
+INSERT INTO `user` (`username`, `email`, `password`, `agent_key`, `status`) VALUES
+('admin', '1@example.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 1);
 
 -- 为超管分配 SUPER_ADMIN 角色
 INSERT INTO `user_role` (`user_id`, `role_id`) VALUES

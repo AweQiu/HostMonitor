@@ -117,6 +117,7 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         vo.setGroupId(user.getGroupId());
         vo.setCreateTime(user.getCreateTime());
         vo.setRoles(getUserRoleKeys(user.getId()));
+        vo.setAgentKey(user.getAgentKey());
 
         if (user.getGroupId() != null) {
             Group group = groupMapper.selectById(user.getGroupId());

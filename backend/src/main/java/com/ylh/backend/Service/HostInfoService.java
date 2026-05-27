@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.ylh.backend.Dto.HostVO;
 import com.ylh.backend.Entity.HostInfo;
+import com.ylh.backend.Entity.User;
 import com.ylh.backend.Mapper.HostInfoMapper;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +27,46 @@ public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
         }
         wrapper.orderByDesc(HostInfo::getCreateTime);
         return page(pageParam, wrapper);
+    }
+
+    public Page<HostInfo> pageListByUserIds(int page, int size, String keyword, List<Long> userIds) {
+        Page<HostInfo> pageParam = new Page<>(page, size);
+        LambdaQueryWrapper<HostInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(HostInfo::getUserId, userIds);
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            wrapper.and(w -> w
+                    .like(HostInfo::getHostname, keyword)
+                    .or()
+                    .like(HostInfo::getIpAddress, keyword)
+            );
+        }
+        wrapper.orderByDesc(HostInfo::getCreateTime);
+        return page(pageParam, wrapper);
+    }
+
+    public Page<HostInfo> pageListByUserId(int page, int size, String keyword, Long userId) {
+        Page<HostInfo> pageParam = new Page<>(page, size);
+        LambdaQueryWrapper<HostInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(HostInfo::getUserId, userId);
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            wrapper.and(w -> w
+                    .like(HostInfo::getHostname, keyword)
+                    .or()
+                    .like(HostInfo::getIpAddress, keyword)
+            );
+        }
+        wrapper.orderByDesc(HostInfo::getCreateTime);
+        return page(pageParam, wrapper);
+    }
+
+    public boolean isHostOwnedBy(Long hostId, Long userId) {
+        HostInfo host = getById(hostId);
+        return host != null && host.getUserId().equals(userId);
+    }
+
+    public boolean isHostOwnedByUsers(Long hostId, List<Long> userIds) {
+        HostInfo host = getById(hostId);
+        return host != null && userIds.contains(host.getUserId());
     }
 
     public HostVO toVO(HostInfo host) {

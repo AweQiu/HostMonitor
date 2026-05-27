@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, h, onMounted } from 'vue'
+import { ref, watch, h, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useTabsStore, type TabItem } from '@/stores/tabs'
@@ -15,7 +15,8 @@ import {
   MenuUnfoldOutlined,
   ReloadOutlined,
   CloseOutlined,
-  GroupOutlined
+  GroupOutlined,
+  BellOutlined
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -25,20 +26,29 @@ const tabsStore = useTabsStore()
 
 const collapsed = ref(false)
 const selectedKeys = ref<string[]>(['dashboard'])
+const unreadCount = ref(0)
+let unreadTimer: ReturnType<typeof setInterval> | null = null
 
-const menuItems = [
-  { key: 'dashboard', icon: () => h(DashboardOutlined), label: '仪表盘', path: '/dashboard' },
-  { key: 'hosts', icon: () => h(DesktopOutlined), label: '主机管理', path: '/hosts' },
-  { key: 'users', icon: () => h(TeamOutlined), label: '用户管理', path: '/users' },
-  { key: 'groups', icon: () => h(GroupOutlined), label: '组织管理', path: '/groups' },
-  { key: 'settings', icon: () => h(SettingOutlined), label: '系统设置', path: '/settings' }
+const allMenuItems = [
+  { key: 'dashboard', icon: () => h(DashboardOutlined), label: '仪表盘', path: '/dashboard', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
+  { key: 'hosts', icon: () => h(DesktopOutlined), label: '主机管理', path: '/hosts', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
+  { key: 'users', icon: () => h(TeamOutlined), label: '用户管理', path: '/users', roles: ['SUPER_ADMIN', 'GROUP_ADMIN'] },
+  { key: 'groups', icon: () => h(GroupOutlined), label: '组织管理', path: '/groups', roles: ['SUPER_ADMIN'] },
+  { key: 'notifications', icon: () => h(BellOutlined), label: '通知管理', path: '/notifications', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
+  { key: 'settings', icon: () => h(SettingOutlined), label: '系统设置', path: '/settings', roles: ['SUPER_ADMIN'] }
 ]
+
+const menuItems = computed(() => {
+  const roles = userStore.userInfo?.roles || []
+  return allMenuItems.filter(item => item.roles.some(r => roles.includes(r)))
+})
 
 const tabKeyMap: Record<string, string> = {
   '/dashboard': 'dashboard',
   '/hosts': 'hosts',
   '/users': 'users',
   '/groups': 'groups',
+  '/notifications': 'notifications',
   '/settings': 'settings'
 }
 
@@ -47,6 +57,7 @@ const tabTitleMap: Record<string, string> = {
   hosts: '主机管理',
   users: '用户管理',
   groups: '组织管理',
+  notifications: '通知管理',
   settings: '系统设置',
   screen: '屏幕监控'
 }
@@ -97,10 +108,29 @@ async function loadUserInfo() {
 
 onMounted(() => {
   loadUserInfo()
+  loadUnreadCount()
+  unreadTimer = setInterval(loadUnreadCount, 30000)
 })
 
+onBeforeUnmount(() => {
+  if (unreadTimer) {
+    clearInterval(unreadTimer)
+    unreadTimer = null
+  }
+})
+
+async function loadUnreadCount() {
+  if (!userStore.token) return
+  try {
+    const data = await request.get('/notifications/unread-count')
+    unreadCount.value = data.data
+  } catch {
+    // ignore
+  }
+}
+
 function handleMenuClick({ key }: { key: string }) {
-  const item = menuItems.find(m => m.key === key)
+  const item = menuItems.value.find(m => m.key === key)
   if (item) {
     tabsStore.addTab({
       key: item.key,
@@ -145,6 +175,13 @@ function handleReload() {
         </div>
       </div>
       <div class="top-bar-right">
+        <a-tooltip title="通知">
+          <span class="top-bar-action" @click="router.push('/notifications')">
+            <a-badge :count="unreadCount" :overflow-count="99" size="small">
+              <BellOutlined style="color: #fff; font-size: 16px" />
+            </a-badge>
+          </span>
+        </a-tooltip>
         <a-tooltip title="刷新当前页">
           <span class="top-bar-action" @click="handleReload">
             <ReloadOutlined />

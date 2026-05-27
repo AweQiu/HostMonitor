@@ -15,5 +15,6 @@ public class UserVO {
     private Long groupId;
     private String groupName;
     private List<String> roles;
+    private String agentKey;
     private LocalDateTime createTime;
 }

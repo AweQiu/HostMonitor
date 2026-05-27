@@ -64,6 +64,36 @@ public class GroupService extends ServiceImpl<GroupMapper, Group> {
         return userMapper.selectById(userRoles.get(0).getUserId());
     }
 
+    public void revokeGroupAdminDirect(Long groupId, Long userId) {
+        Role groupAdminRole = roleMapper.selectOne(
+                new LambdaQueryWrapper<Role>().eq(Role::getRoleKey, "GROUP_ADMIN")
+        );
+        if (groupAdminRole != null) {
+            userRoleMapper.delete(
+                    new LambdaQueryWrapper<UserRole>()
+                            .eq(UserRole::getUserId, userId)
+                            .eq(UserRole::getRoleId, groupAdminRole.getId())
+            );
+        }
+
+        Role userRole = roleMapper.selectOne(
+                new LambdaQueryWrapper<Role>().eq(Role::getRoleKey, "USER")
+        );
+        if (userRole != null) {
+            long hasUserRole = userRoleMapper.selectCount(
+                    new LambdaQueryWrapper<UserRole>()
+                            .eq(UserRole::getUserId, userId)
+                            .eq(UserRole::getRoleId, userRole.getId())
+            );
+            if (hasUserRole == 0) {
+                UserRole ur = new UserRole();
+                ur.setUserId(userId);
+                ur.setRoleId(userRole.getId());
+                userRoleMapper.insert(ur);
+            }
+        }
+    }
+
     public GroupVO toVO(Group group) {
         GroupVO vo = new GroupVO();
         vo.setId(group.getId());

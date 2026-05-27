@@ -12,6 +12,7 @@ import com.ylh.backend.Mapper.RoleMapper;
 import com.ylh.backend.Mapper.UserRoleMapper;
 import com.ylh.backend.Service.GroupService;
 import com.ylh.backend.Service.UserService;
+import com.ylh.backend.Socket.SocketServer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -32,6 +33,7 @@ public class UserController {
     private final RoleMapper roleMapper;
     private final PasswordEncoder passwordEncoder;
     private final GroupService groupService;
+    private final SocketServer socketServer;
 
     @GetMapping("/me")
     public Result<UserVO> getCurrentUser() {
@@ -153,13 +155,34 @@ public class UserController {
         List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
         boolean isSuperAdmin = currentRoles.contains("SUPER_ADMIN");
 
-        if (isSuperAdmin && request.getGroupId() != null) {
-            user.setGroupId(request.getGroupId());
-        }
+        if (isSuperAdmin && request.getClearGroupId() != null && request.getClearGroupId()) {
+            List<String> targetRoles = userService.getUserRoleKeys(id);
+            if (targetRoles.contains("SUPER_ADMIN")) {
+                return Result.error("不能将超级管理员移出分组");
+            }
+            if (targetRoles.contains("GROUP_ADMIN")) {
+                Long oldGroupId = user.getGroupId();
+                if (oldGroupId != null) {
+                    groupService.revokeGroupAdminDirect(oldGroupId, id);
+                }
+            }
+            user.setGroupId(null);
+        } else if (isSuperAdmin && request.getGroupId() != null) {
+            Long newGroupId = request.getGroupId();
+            Long oldGroupId = user.getGroupId();
 
-        List<String> targetRoles = userService.getUserRoleKeys(id);
-        if (targetRoles.contains("SUPER_ADMIN") && request.getGroupId() == null) {
-            return Result.error("不能将超级管理员移出分组");
+            List<String> targetRoles = userService.getUserRoleKeys(id);
+            if (targetRoles.contains("SUPER_ADMIN")) {
+                return Result.error("超级管理员不能加入分组");
+            }
+
+            if (!newGroupId.equals(oldGroupId)) {
+                if (targetRoles.contains("GROUP_ADMIN") && oldGroupId != null) {
+                    groupService.revokeGroupAdminDirect(oldGroupId, id);
+                    assignRoleToUser(id, "USER");
+                }
+            }
+            user.setGroupId(newGroupId);
         }
 
         userService.updateById(user);
@@ -209,43 +232,51 @@ public class UserController {
             return Result.error("用户不存在");
         }
 
-        List<String> oldRoles = userService.getUserRoleKeys(id);
+        if ("GROUP_ADMIN".equals(request.getRoleKey())) {
+            if (user.getGroupId() == null) {
+                return Result.error("请先将该用户加入一个分组，再指定为组管理员");
+            }
+            User existingAdmin = groupService.getGroupAdmin(user.getGroupId());
+            if (existingAdmin != null && !existingAdmin.getId().equals(id)) {
+                return Result.error("该分组已有组管理员「" + existingAdmin.getUsername() + "」，请先撤销其管理员身份");
+            }
+        }
 
         userRoleMapper.delete(new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, id));
         assignRoleToUser(id, request.getRoleKey());
 
-        if ("GROUP_ADMIN".equals(request.getRoleKey()) && isSuperAdmin) {
-            if (user.getGroupId() == null) {
-                return Result.error("请先将该用户加入一个分组，再指定为组管理员");
-            }
-        }
-
-        if (oldRoles.contains("GROUP_ADMIN") && !"GROUP_ADMIN".equals(request.getRoleKey())) {
-            if (user.getGroupId() != null) {
-                User groupAdmin = groupService.getGroupAdmin(user.getGroupId());
-                if (groupAdmin != null && groupAdmin.getId().equals(id)) {
-                    Role userRole = roleMapper.selectOne(
-                            new LambdaQueryWrapper<Role>().eq(Role::getRoleKey, "USER")
-                    );
-                    if (userRole != null) {
-                        long hasUserRole = userRoleMapper.selectCount(
-                                new LambdaQueryWrapper<UserRole>()
-                                        .eq(UserRole::getUserId, id)
-                                        .eq(UserRole::getRoleId, userRole.getId())
-                        );
-                        if (hasUserRole == 0) {
-                            UserRole ur = new UserRole();
-                            ur.setUserId(id);
-                            ur.setRoleId(userRole.getId());
-                            userRoleMapper.insert(ur);
-                        }
-                    }
-                }
-            }
-        }
-
         log.info("用户 {} 将用户 {} 的角色变更为 {}", currentUserId, id, request.getRoleKey());
         return Result.success("角色分配成功", null);
+    }
+
+    @PostMapping("/{id}/reset-agent-key")
+    public Result<String> resetAgentKey(@PathVariable Long id) {
+        checkUserManagePermission(id);
+
+        Long currentUserId = getCurrentUserId();
+        List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
+        boolean isSuperAdmin = currentRoles.contains("SUPER_ADMIN");
+
+        if (!isSuperAdmin) {
+            return Result.error(403, "只有超级管理员可以重置密钥");
+        }
+
+        User user = userService.getById(id);
+        if (user == null) {
+            return Result.error("用户不存在");
+        }
+
+        socketServer.sendCommandToUser(id, "DISCONNECT");
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+        socketServer.kickExistingConnection(id, -1L);
+
+        String newKey = userService.resetAgentKey(id);
+        log.info("用户 {} 重置了用户 {} 的 agent-key", currentUserId, id);
+        return Result.success("密钥已重置", newKey);
     }
 
     private void assignRoleToUser(Long userId, String roleKey) {
