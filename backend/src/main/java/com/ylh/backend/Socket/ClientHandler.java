@@ -65,7 +65,7 @@ public class ClientHandler implements Runnable {
              OutputStream outputStream = clientSocket.getOutputStream()) {
 
             clientOutputStream = outputStream;
-            sendResponse(outputStream, "CONNECTED:HostMonitor Server v1.0");
+            sendMessage(outputStream, SocketMessage.connected());
 
             byte[] buffer = new byte[BUFFER_SIZE];
             int bytesRead;
@@ -74,7 +74,7 @@ public class ClientHandler implements Runnable {
                 if (state == State.UNAUTHENTICATED
                         && System.currentTimeMillis() - connectTime > AUTH_TIMEOUT_MS) {
                     log.warn("[#{}] Auth timeout, closing connection", connectionId);
-                    sendResponse(outputStream, "ERROR:Auth timeout");
+                    sendMessage(outputStream, SocketMessage.error("Auth timeout"));
                     break;
                 }
 
@@ -108,94 +108,61 @@ public class ClientHandler implements Runnable {
     private void processBuffer(OutputStream outputStream) throws IOException {
         while (true) {
             String data = messageBuffer.toString();
-            int startIndex = findMessageStart(data);
-            if (startIndex == -1) {
+            int nlIdx = data.indexOf('\n');
+            if (nlIdx == -1) {
                 if (data.length() > BUFFER_SIZE) {
                     messageBuffer.setLength(0);
                 }
                 return;
             }
 
-            if (startIndex > 0) {
-                messageBuffer.delete(0, startIndex);
-                data = messageBuffer.toString();
+            String raw = messageBuffer.substring(0, nlIdx).trim();
+            messageBuffer.delete(0, nlIdx + 1);
+
+            if (!raw.isEmpty()) {
+                handleMessage(raw, outputStream);
             }
-
-            int nextStart = findNextMessageStart(data);
-            if (nextStart == -1) {
-                int nlIdx = data.indexOf('\n');
-                if (nlIdx != -1) {
-                    String message = messageBuffer.substring(0, nlIdx);
-                    messageBuffer.delete(0, nlIdx + 1);
-                    handleMessage(message.trim(), outputStream);
-                }
-                return;
-            }
-
-            String message = messageBuffer.substring(0, nextStart);
-            messageBuffer.delete(0, nextStart);
-
-            handleMessage(message.trim(), outputStream);
         }
     }
 
-    private int findMessageStart(String data) {
-        int authIdx = data.indexOf("AUTH:");
-        int hostInfoIdx = data.indexOf("HostInfo{");
-        int hostMetricIdx = data.indexOf("HostMetric{");
-
-        int min = -1;
-        if (authIdx != -1) min = authIdx;
-        if (hostInfoIdx != -1 && (min == -1 || hostInfoIdx < min)) min = hostInfoIdx;
-        if (hostMetricIdx != -1 && (min == -1 || hostMetricIdx < min)) min = hostMetricIdx;
-        return min;
-    }
-
-    private int findNextMessageStart(String data) {
-        int searchFrom = 9;
-        int authIdx = data.indexOf("AUTH:", searchFrom);
-        int hostInfoIdx = data.indexOf("HostInfo{", searchFrom);
-        int hostMetricIdx = data.indexOf("HostMetric{", searchFrom);
-
-        int min = -1;
-        if (authIdx != -1) min = authIdx;
-        if (hostInfoIdx != -1 && (min == -1 || hostInfoIdx < min)) min = hostInfoIdx;
-        if (hostMetricIdx != -1 && (min == -1 || hostMetricIdx < min)) min = hostMetricIdx;
-        return min;
-    }
-
-    private void handleMessage(String message, OutputStream outputStream) throws IOException {
-        try {
-            if (message.startsWith("AUTH:")) {
-                handleAuth(message, outputStream);
-            } else if (state == State.UNAUTHENTICATED) {
-                log.warn("[#{}] Received data before auth, closing connection", connectionId);
-                sendResponse(outputStream, "ERROR:Not authenticated");
-                closeQuietly();
-            } else if (MessageParser.isHostInfoMessage(message)) {
-                HostInfo host = MessageParser.parseHostInfo(message);
-                onHostInfoReceived(host, outputStream);
-            } else if (MessageParser.isHostMetricMessage(message)) {
-                HostMetric metric = MessageParser.parseHostMetric(message);
-                onHostMetricReceived(metric);
-            } else {
-                log.warn("[#{}] Unknown message type: {}", connectionId, message);
-            }
-        } catch (Exception e) {
-            log.error("[#{}] Failed to handle message: {}", connectionId, message, e);
-        }
-    }
-
-    private void handleAuth(String message, OutputStream outputStream) throws IOException {
-        if (state == State.AUTHENTICATED) {
-            sendResponse(outputStream, "OK:Already authenticated");
+    private void handleMessage(String raw, OutputStream outputStream) throws IOException {
+        SocketMessage msg = SocketMessage.parse(raw);
+        if (msg == null) {
+            log.warn("[#{}] Failed to parse message: {}", connectionId, raw);
             return;
         }
 
-        String agentKey = message.substring(5).trim();
-        if (agentKey.isEmpty()) {
+        try {
+            switch (msg.getType()) {
+                case MessageConstants.TYPE_AUTH:
+                    handleAuth(msg, outputStream);
+                    break;
+                default:
+                    if (state == State.UNAUTHENTICATED) {
+                        log.warn("[#{}] Received data before auth, closing connection", connectionId);
+                        sendMessage(outputStream, SocketMessage.error("Not authenticated"));
+                        closeQuietly();
+                        return;
+                    }
+                    handleAuthenticatedMessage(msg, outputStream);
+                    break;
+            }
+        } catch (Exception e) {
+            log.error("[#{}] Failed to handle message: {}", connectionId, raw, e);
+        }
+    }
+
+    private void handleAuth(SocketMessage msg, OutputStream outputStream) throws IOException {
+        if (state == State.AUTHENTICATED) {
+            sendMessage(outputStream, SocketMessage.ok("Already authenticated"));
+            return;
+        }
+
+        AuthBody authBody = msg.getBodyAs(AuthBody.class);
+        String agentKey = authBody.agentKey;
+        if (agentKey == null || agentKey.isEmpty()) {
             log.warn("[#{}] Empty agent key, closing connection", connectionId);
-            sendResponse(outputStream, "ERROR:Invalid agent key");
+            sendMessage(outputStream, SocketMessage.error("Invalid agent key"));
             closeQuietly();
             return;
         }
@@ -203,14 +170,14 @@ public class ClientHandler implements Runnable {
         User user = userService.getByAgentKey(agentKey);
         if (user == null) {
             log.warn("[#{}] Invalid agent key, closing connection", connectionId);
-            sendResponse(outputStream, "ERROR:Invalid agent key");
+            sendMessage(outputStream, SocketMessage.error("Invalid agent key"));
             closeQuietly();
             return;
         }
 
         if (user.getStatus() != 1) {
             log.warn("[#{}] User {} is disabled, closing connection", connectionId, user.getUsername());
-            sendResponse(outputStream, "ERROR:Account disabled");
+            sendMessage(outputStream, SocketMessage.error("Account disabled"));
             closeQuietly();
             return;
         }
@@ -223,7 +190,23 @@ public class ClientHandler implements Runnable {
         socketServer.registerUserConnection(authenticatedUserId, connectionId);
 
         log.info("[#{}] Authenticated as user {} ({})", connectionId, authenticatedUserId, authenticatedUsername);
-        sendResponse(outputStream, "OK:Authenticated");
+        sendMessage(outputStream, SocketMessage.ok("Authenticated"));
+    }
+
+    private void handleAuthenticatedMessage(SocketMessage msg, OutputStream outputStream) throws IOException {
+        switch (msg.getType()) {
+            case MessageConstants.TYPE_HOST_INFO:
+                HostInfo host = MessageParser.parseHostInfo(msg.getBody());
+                onHostInfoReceived(host, outputStream);
+                break;
+            case MessageConstants.TYPE_HOST_METRIC:
+                HostMetric metric = MessageParser.parseHostMetric(msg.getBody());
+                onHostMetricReceived(metric);
+                break;
+            default:
+                log.warn("[#{}] Unknown message type: {}", connectionId, msg.getType());
+                break;
+        }
     }
 
     private void onHostInfoReceived(HostInfo host, OutputStream outputStream) throws IOException {
@@ -256,7 +239,7 @@ public class ClientHandler implements Runnable {
             log.info("[#{}] Registered new host: id={}, hostname={}", connectionId, host.getId(), host.getHostname());
         }
 
-        sendResponse(outputStream, "OK:HostInfo received,id=" + registeredHostId);
+        sendMessage(outputStream, SocketMessage.okWithId("HostInfo received", registeredHostId));
     }
 
     private void onHostMetricReceived(HostMetric metric) {
@@ -267,8 +250,8 @@ public class ClientHandler implements Runnable {
         log.debug("[#{}] Saved HostMetric: hostId={}, cpu={}%", connectionId, metric.getHostId(), metric.getCpuUsage());
     }
 
-    private void sendResponse(OutputStream outputStream, String response) throws IOException {
-        outputStream.write((response + "\n").getBytes(StandardCharsets.UTF_8));
+    private void sendMessage(OutputStream outputStream, SocketMessage msg) throws IOException {
+        outputStream.write(msg.serialize().getBytes(StandardCharsets.UTF_8));
         outputStream.flush();
     }
 
@@ -305,7 +288,8 @@ public class ClientHandler implements Runnable {
         }
         try {
             synchronized (os) {
-                os.write((command + "\n").getBytes(StandardCharsets.UTF_8));
+                SocketMessage msg = SocketMessage.command(command);
+                os.write(msg.serialize().getBytes(StandardCharsets.UTF_8));
                 os.flush();
             }
         } catch (IOException e) {
@@ -318,5 +302,9 @@ public class ClientHandler implements Runnable {
             return "disconnected";
         }
         return clientSocket.getRemoteSocketAddress().toString();
+    }
+
+    private static class AuthBody {
+        public String agentKey;
     }
 }

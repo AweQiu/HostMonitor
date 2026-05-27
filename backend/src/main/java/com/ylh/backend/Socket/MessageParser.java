@@ -1,85 +1,69 @@
 package com.ylh.backend.Socket;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylh.backend.Entity.HostInfo;
 import com.ylh.backend.Entity.HostMetric;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class MessageParser {
 
-    private static final Pattern STRING_FIELD = Pattern.compile("(\\w+)='([^']*)'");
-    private static final Pattern NUMERIC_FIELD = Pattern.compile("(\\w+)=([\\d.]+)%?");
-    private static final Pattern DATETIME_FIELD = Pattern.compile("collectTime=([\\dT:.\\-]+)");
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private MessageParser() {
     }
 
-    public static HostInfo parseHostInfo(String message) {
-        Map<String, String> stringFields = extractFields(message, STRING_FIELD);
-        Map<String, String> numericFields = extractFields(message, NUMERIC_FIELD);
-
-        HostInfo host = new HostInfo();
-        host.setHostname(stringFields.get("hostname"));
-        host.setIpAddress(stringFields.get("ipAddress"));
-        host.setCpuModel(stringFields.get("cpuModel"));
-        host.setOsName(stringFields.get("osName"));
-        host.setOsVersion(stringFields.get("osVersion"));
-        host.setCpuCores(parseInt(numericFields.get("cpuCores")));
-        host.setMemoryTotal(parseLong(numericFields.get("memoryTotal")));
-        host.setDiskTotal(parseLong(numericFields.get("diskTotal")));
-        return host;
-    }
-
-    public static HostMetric parseHostMetric(String message) {
-        Map<String, String> numericFields = extractFields(message, NUMERIC_FIELD);
-        Matcher dtMatcher = DATETIME_FIELD.matcher(message);
-
-        HostMetric metric = new HostMetric();
-        metric.setCpuUsage(parseBigDecimal(numericFields.get("cpuUsage")));
-        metric.setMemoryUsage(parseBigDecimal(numericFields.get("memoryUsage")));
-        metric.setDiskUsage(parseBigDecimal(numericFields.get("diskUsage")));
-        metric.setMemoryUsed(parseLong(numericFields.get("memoryUsed")));
-        metric.setDiskUsed(parseLong(numericFields.get("diskUsed")));
-        if (dtMatcher.find()) {
-            metric.setCollectTime(LocalDateTime.parse(dtMatcher.group(1)));
+    public static HostInfo parseHostInfo(String jsonBody) {
+        try {
+            HostInfoDto dto = OBJECT_MAPPER.readValue(jsonBody, HostInfoDto.class);
+            HostInfo host = new HostInfo();
+            host.setHostname(dto.hostname);
+            host.setIpAddress(dto.ipAddress);
+            host.setCpuModel(dto.cpuModel);
+            host.setCpuCores(dto.cpuCores != null ? dto.cpuCores : 0);
+            host.setMemoryTotal(dto.memoryTotal != null ? dto.memoryTotal : 0L);
+            host.setDiskTotal(dto.diskTotal != null ? dto.diskTotal : 0L);
+            host.setOsName(dto.osName);
+            host.setOsVersion(dto.osVersion);
+            return host;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse HostInfo: " + jsonBody, e);
         }
-        return metric;
     }
 
-    public static boolean isHostInfoMessage(String message) {
-        return message != null && message.startsWith("HostInfo{");
-    }
-
-    public static boolean isHostMetricMessage(String message) {
-        return message != null && message.startsWith("HostMetric{");
-    }
-
-    private static Map<String, String> extractFields(String message, Pattern pattern) {
-        Map<String, String> fields = new HashMap<>();
-        Matcher matcher = pattern.matcher(message);
-        while (matcher.find()) {
-            fields.put(matcher.group(1), matcher.group(2));
+    public static HostMetric parseHostMetric(String jsonBody) {
+        try {
+            HostMetricDto dto = OBJECT_MAPPER.readValue(jsonBody, HostMetricDto.class);
+            HostMetric metric = new HostMetric();
+            metric.setCpuUsage(dto.cpuUsage != null ? BigDecimal.valueOf(dto.cpuUsage) : BigDecimal.ZERO);
+            metric.setMemoryUsage(dto.memoryUsage != null ? BigDecimal.valueOf(dto.memoryUsage) : BigDecimal.ZERO);
+            metric.setDiskUsage(dto.diskUsage != null ? BigDecimal.valueOf(dto.diskUsage) : BigDecimal.ZERO);
+            metric.setMemoryUsed(dto.memoryUsed != null ? dto.memoryUsed : 0L);
+            metric.setDiskUsed(dto.diskUsed != null ? dto.diskUsed : 0L);
+            metric.setCollectTime(dto.collectTime);
+            return metric;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse HostMetric: " + jsonBody, e);
         }
-        return fields;
     }
 
-    private static int parseInt(String value) {
-        if (value == null) return 0;
-        return (int) Double.parseDouble(value);
+    private static class HostInfoDto {
+        public String hostname;
+        public String ipAddress;
+        public String cpuModel;
+        public Integer cpuCores;
+        public Long memoryTotal;
+        public Long diskTotal;
+        public String osName;
+        public String osVersion;
     }
 
-    private static long parseLong(String value) {
-        if (value == null) return 0L;
-        return (long) Double.parseDouble(value);
-    }
-
-    private static BigDecimal parseBigDecimal(String value) {
-        if (value == null) return BigDecimal.ZERO;
-        return new BigDecimal(value);
+    private static class HostMetricDto {
+        public Double cpuUsage;
+        public Double memoryUsage;
+        public Double diskUsage;
+        public Long memoryUsed;
+        public Long diskUsed;
+        public java.time.LocalDateTime collectTime;
     }
 }

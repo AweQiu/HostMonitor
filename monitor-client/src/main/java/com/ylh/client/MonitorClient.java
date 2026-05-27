@@ -1,5 +1,7 @@
 package com.ylh.client;
 
+import com.ylh.client.common.MessageConstants;
+import com.ylh.client.common.SocketMessage;
 import com.ylh.client.core.MetricReporter;
 import com.ylh.client.core.ScreenStreamer;
 import com.ylh.client.network.NetworkClient;
@@ -54,17 +56,20 @@ public class MonitorClient {
             if (screenEnabled) {
                 udpSender = new UdpSender();
 
-                client.setCommandHandler(command -> {
-                    System.out.println("Received command: " + command);
-                    if ("SCREEN_START".equals(command)) {
-                        startScreenStreaming();
-                    } else if ("SCREEN_STOP".equals(command)) {
-                        stopScreenStreaming();
+                client.setMessageHandler(msg -> {
+                    if (MessageConstants.TYPE_CMD.equals(msg.getType())) {
+                        String command = msg.getCommand();
+                        System.out.println("Received command: " + command);
+                        if (MessageConstants.CMD_SCREEN_START.equals(command)) {
+                            startScreenStreaming();
+                        } else if (MessageConstants.CMD_SCREEN_STOP.equals(command)) {
+                            stopScreenStreaming();
+                        }
                     }
                 });
 
                 client.startListening();
-                System.out.println("Screen streaming is on-demand, waiting for SCREEN_START command...");
+                System.out.println("Screen streaming is on-demand, waiting for " + MessageConstants.CMD_SCREEN_START + " command...");
             }
 
             Thread.currentThread().join();

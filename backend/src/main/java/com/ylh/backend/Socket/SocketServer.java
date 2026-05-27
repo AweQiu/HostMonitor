@@ -55,12 +55,12 @@ public class SocketServer {
         screenStreamManager.setSubscriptionListener(new ScreenStreamManager.ScreenSubscriptionListener() {
             @Override
             public void onFirstSubscriber(Long userId) {
-                sendCommandToUser(userId, "SCREEN_START");
+                sendCommandToUser(userId, MessageConstants.CMD_SCREEN_START);
             }
 
             @Override
             public void onLastSubscriberLeft(Long userId) {
-                sendCommandToUser(userId, "SCREEN_STOP");
+                sendCommandToUser(userId, MessageConstants.CMD_SCREEN_STOP);
             }
         });
 

@@ -1,5 +1,7 @@
 package com.ylh.client.network;
 
+import com.ylh.client.common.MessageConstants;
+import com.ylh.client.common.SocketMessage;
 import com.ylh.client.models.HostInfo;
 import com.ylh.client.models.HostMetric;
 import com.ylh.client.utils.CollectionUtil;
@@ -22,7 +24,7 @@ public class NetworkClient {
     private InputStream inputStream;
     private Thread listenerThread;
     private volatile boolean listening = false;
-    private Consumer<String> commandHandler;
+    private Consumer<SocketMessage> messageHandler;
 
     public NetworkClient() {
         Properties props = ConfigUtil.loadProperties("application.properties");
@@ -46,29 +48,34 @@ public class NetworkClient {
 
     public boolean authenticate(String agentKey) throws IOException {
         byte[] welcome = receive(4096);
-        System.out.println("Server: " + new String(welcome, StandardCharsets.UTF_8).trim());
+        String welcomeStr = new String(welcome, StandardCharsets.UTF_8).trim();
+        System.out.println("Server: " + welcomeStr);
 
-        send(("AUTH:" + agentKey + "\n").getBytes(StandardCharsets.UTF_8));
+        SocketMessage authMsg = SocketMessage.auth(agentKey);
+        send(authMsg.serialize().getBytes(StandardCharsets.UTF_8));
 
         byte[] authResp = receive(4096);
         String authResult = new String(authResp, StandardCharsets.UTF_8).trim();
         System.out.println("Auth: " + authResult);
 
-        return authResult.contains("OK");
+        SocketMessage resp = SocketMessage.parse(authResult);
+        return resp != null && resp.isOk();
     }
 
     public void sendHostInfo() throws IOException {
         HostInfo hostInfo = CollectionUtil.collectHostInfo();
-        send((hostInfo.toString() + "\n").getBytes(StandardCharsets.UTF_8));
+        SocketMessage msg = SocketMessage.hostInfo(hostInfo);
+        send(msg.serialize().getBytes(StandardCharsets.UTF_8));
     }
 
     public void sendMetric() throws IOException {
         HostMetric metric = CollectionUtil.collectMetric();
-        send((metric.toString() + "\n").getBytes(StandardCharsets.UTF_8));
+        SocketMessage msg = SocketMessage.hostMetric(metric);
+        send(msg.serialize().getBytes(StandardCharsets.UTF_8));
     }
 
-    public void setCommandHandler(Consumer<String> handler) {
-        this.commandHandler = handler;
+    public void setMessageHandler(Consumer<SocketMessage> handler) {
+        this.messageHandler = handler;
     }
 
     public void startListening() {
@@ -91,11 +98,14 @@ public class NetworkClient {
 
                     int nlIdx;
                     while ((nlIdx = buffer.indexOf("\n")) != -1) {
-                        String line = buffer.substring(0, nlIdx).trim();
+                        String raw = buffer.substring(0, nlIdx).trim();
                         buffer.delete(0, nlIdx + 1);
 
-                        if (isCommand(line) && commandHandler != null) {
-                            commandHandler.accept(line);
+                        if (!raw.isEmpty()) {
+                            SocketMessage msg = SocketMessage.parse(raw);
+                            if (msg != null && messageHandler != null) {
+                                messageHandler.accept(msg);
+                            }
                         }
                     }
                 } catch (IOException e) {
@@ -118,10 +128,6 @@ public class NetworkClient {
             listenerThread.interrupt();
             listenerThread = null;
         }
-    }
-
-    private boolean isCommand(String line) {
-        return line.startsWith("SCREEN_");
     }
 
     public void disconnect() {
