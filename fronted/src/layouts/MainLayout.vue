@@ -55,6 +55,7 @@ const tabKeyMap: Record<string, string> = {
 const tabTitleMap: Record<string, string> = {
   dashboard: '仪表盘',
   hosts: '主机管理',
+  hostDetail: '主机详情',
   users: '用户管理',
   groups: '组织管理',
   notifications: '通知管理',
@@ -68,13 +69,18 @@ watch(
     let key = tabKeyMap[path] || ''
     let title = tabTitleMap[key] || key
 
+    if (path.match(/^\/hosts\/\d+$/)) {
+      key = 'hostDetail'
+      title = (route.query.name as string) || '主机详情'
+    }
+
     if (path.match(/^\/hosts\/\d+\/screen$/)) {
       key = 'screen'
       title = '屏幕监控'
     }
 
     if (key) {
-      selectedKeys.value = [key === 'screen' ? 'hosts' : key]
+      selectedKeys.value = ['hosts']
       const tab: TabItem = {
         key,
         title,

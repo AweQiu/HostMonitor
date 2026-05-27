@@ -204,6 +204,12 @@ public class GroupController {
         return Result.success("撤销组管理员成功", null);
     }
 
+    @GetMapping("/{id}/process-rules")
+    public Result<List<Object>> getProcessRules(@PathVariable Long id) {
+        checkSuperAdminPermission();
+        return Result.success(List.of());
+    }
+
     private void assignGroupAdmin(Long groupId, Long userId) {
         User user = userService.getById(userId);
         if (user == null) {

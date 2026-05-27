@@ -96,6 +96,39 @@ public class HostInfoController {
         return Result.success(hostInfoService.toVO(host));
     }
 
+    @GetMapping("/{id}/metrics/latest")
+    public Result<HostVO.MetricVO> getLatestMetric(@PathVariable Long id) {
+        if (!checkHostAccess(id)) {
+            return Result.error(403, "无权查看该主机");
+        }
+
+        HostVO.MetricVO metric = hostInfoService.getLatestMetric(id);
+        if (metric == null) {
+            return Result.success(new HostVO.MetricVO());
+        }
+        return Result.success(metric);
+    }
+
+    @GetMapping("/{id}/metrics/history")
+    public Result<List<HostVO.MetricHistoryVO>> getMetricHistory(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "1h") String range) {
+        if (!checkHostAccess(id)) {
+            return Result.error(403, "无权查看该主机");
+        }
+
+        List<HostVO.MetricHistoryVO> history = hostInfoService.getMetricHistory(id, range);
+        return Result.success(history);
+    }
+
+    @GetMapping("/{id}/processes")
+    public Result<List<Object>> getProcesses(@PathVariable Long id) {
+        if (!checkHostAccess(id)) {
+            return Result.error(403, "无权查看该主机");
+        }
+        return Result.success(List.of());
+    }
+
     @DeleteMapping("/{id}")
     public Result<Void> deleteHost(@PathVariable Long id) {
         if (!checkHostAccess(id)) {

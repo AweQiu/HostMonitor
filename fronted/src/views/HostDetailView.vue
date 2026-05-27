@@ -1,0 +1,717 @@
+<script setup lang="ts">
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { message } from 'ant-design-vue'
+import {
+  ArrowLeftOutlined,
+  DesktopOutlined,
+  MonitorOutlined,
+  DeleteOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ReloadOutlined
+} from '@ant-design/icons-vue'
+import * as echarts from 'echarts'
+import request from '@/utils/request'
+import { useUserStore } from '@/stores/user'
+
+const route = useRoute()
+const router = useRouter()
+const userStore = useUserStore()
+
+const hostId = computed(() => route.params.hostId as string)
+
+const isAdmin = computed(() => {
+  const roles = userStore.userInfo?.roles || []
+  return roles.includes('SUPER_ADMIN') || roles.includes('GROUP_ADMIN')
+})
+
+interface HostInfo {
+  id: number
+  hostname: string
+  ipAddress: string
+  cpuModel: string | null
+  cpuCores: number | null
+  memoryTotal: number | null
+  diskTotal: number | null
+  osName: string | null
+  osVersion: string | null
+  status: number
+  lastHeartbeat: string | null
+  userId: number
+  username: string | null
+  groupId: number | null
+  groupName: string | null
+  createTime: string
+}
+
+interface MetricInfo {
+  cpuUsage: number | null
+  memoryUsage: number | null
+  diskUsage: number | null
+  memoryUsed: number | null
+  diskUsed: number | null
+  collectTime: string | null
+}
+
+interface MetricHistory {
+  collectTime: string
+  cpuUsage: number
+  memoryUsage: number
+  diskUsage: number
+}
+
+interface ProcessRecord {
+  pid: number
+  name: string
+  user: string
+  cpuPercent: number
+  memoryPercent: number
+  memoryMb: number
+  status: string
+  command: string | null
+  isWhitelisted: boolean | null
+  isBlacklisted: boolean | null
+}
+
+interface ProcessRule {
+  id: number
+  groupId: number
+  processName: string
+  ruleType: 'WHITELIST' | 'BLACKLIST'
+  description: string | null
+  createTime: string
+}
+
+const hostInfo = ref<HostInfo | null>(null)
+const metric = ref<MetricInfo | null>(null)
+const processList = ref<ProcessRecord[]>([])
+const processRules = ref<ProcessRule[]>([])
+const loading = ref(false)
+const processLoading = ref(false)
+const activeTab = ref('overview')
+const metricRange = ref('1h')
+
+const chartRef = ref<HTMLDivElement | null>(null)
+let chartInstance: echarts.ECharts | null = null
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+const rangeOptions = [
+  { label: '1 小时', value: '1h' },
+  { label: '6 小时', value: '6h' },
+  { label: '24 小时', value: '24h' },
+  { label: '7 天', value: '7d' }
+]
+
+function formatBytes(bytes: number | null): string {
+  if (bytes === null || bytes === undefined) return '-'
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i]
+}
+
+function timeAgo(dateStr: string | null): string {
+  if (!dateStr) return '-'
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return `${seconds} 秒前`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  return `${Math.floor(hours / 24)} 天前`
+}
+
+async function fetchHostDetail() {
+  loading.value = true
+  try {
+    const data = await request.get(`/hosts/${hostId.value}`)
+    hostInfo.value = data.data
+  } catch {
+    // error handled by interceptor
+  } finally {
+    loading.value = false
+  }
+}
+
+async function fetchMetric() {
+  try {
+    const data = await request.get(`/hosts/${hostId.value}/metrics/latest`)
+    metric.value = data.data
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchMetricHistory() {
+  try {
+    const data = await request.get(`/hosts/${hostId.value}/metrics/history`, {
+      params: { range: metricRange.value }
+    })
+    updateChart(data.data)
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchProcesses() {
+  processLoading.value = true
+  try {
+    const data = await request.get(`/hosts/${hostId.value}/processes`)
+    processList.value = data.data
+  } catch {
+    // error handled by interceptor
+  } finally {
+    processLoading.value = false
+  }
+}
+
+async function fetchProcessRules() {
+  if (!hostInfo.value?.groupId) return
+  try {
+    const data = await request.get(`/groups/${hostInfo.value.groupId}/process-rules`)
+    processRules.value = data.data
+  } catch {
+    // ignore
+  }
+}
+
+function initChart() {
+  if (!chartRef.value) return
+  chartInstance = echarts.init(chartRef.value)
+  chartInstance.setOption({
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255,255,255,0.95)',
+      borderColor: '#eee',
+      borderWidth: 1,
+      textStyle: { color: '#333', fontSize: 12 },
+      formatter(params: any) {
+        const time = params[0]?.axisValue || ''
+        let html = `<div style="font-weight:600;margin-bottom:4px">${time}</div>`
+        params.forEach((p: any) => {
+          html += `<div style="display:flex;align-items:center;gap:6px">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
+            ${p.seriesName}: <b>${p.value}%</b>
+          </div>`
+        })
+        return html
+      }
+    },
+    legend: {
+      data: ['CPU 使用率', '内存使用率', '硬盘使用率'],
+      bottom: 0,
+      itemWidth: 16,
+      itemHeight: 8,
+      textStyle: { fontSize: 12, color: '#666' }
+    },
+    grid: {
+      top: 16,
+      left: 48,
+      right: 24,
+      bottom: 36
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: [],
+      axisLine: { lineStyle: { color: '#ddd' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#999', fontSize: 11, formatter: (val: string) => val.substring(val.length - 5) }
+    },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 100,
+      axisLabel: { color: '#999', fontSize: 11, formatter: '{value}%' },
+      splitLine: { lineStyle: { color: '#f5f5f5' } },
+      axisLine: { show: false },
+      axisTick: { show: false }
+    },
+    series: [
+      {
+        name: 'CPU 使用率',
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 2, color: '#1890ff' },
+        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: 'rgba(24,144,255,0.25)' },
+          { offset: 1, color: 'rgba(24,144,255,0.02)' }
+        ]) },
+        data: []
+      },
+      {
+        name: '内存使用率',
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 2, color: '#52c41a' },
+        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: 'rgba(82,196,26,0.25)' },
+          { offset: 1, color: 'rgba(82,196,26,0.02)' }
+        ]) },
+        data: []
+      },
+      {
+        name: '硬盘使用率',
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 2, color: '#faad14' },
+        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: 'rgba(250,173,20,0.25)' },
+          { offset: 1, color: 'rgba(250,173,20,0.02)' }
+        ]) },
+        data: []
+      }
+    ]
+  })
+  fetchMetricHistory()
+}
+
+function updateChart(history: MetricHistory[]) {
+  if (!chartInstance) return
+  const times = history.map(m => m.collectTime.replace('T', ' ').substring(0, 16))
+  const cpuData = history.map(m => m.cpuUsage)
+  const memData = history.map(m => m.memoryUsage)
+  const diskData = history.map(m => m.diskUsage)
+  chartInstance.setOption({
+    xAxis: { data: times },
+    series: [
+      { data: cpuData },
+      { data: memData },
+      { data: diskData }
+    ]
+  })
+}
+
+function handleResize() {
+  chartInstance?.resize()
+}
+
+watch(metricRange, () => {
+  fetchMetricHistory()
+})
+
+function handleRefresh() {
+  fetchHostDetail()
+  fetchMetric()
+  fetchMetricHistory()
+  if (activeTab.value === 'process') {
+    fetchProcesses()
+  }
+}
+
+async function handleDeleteHost() {
+  try {
+    await request.delete(`/hosts/${hostId.value}`)
+    message.success('主机已删除')
+    router.push('/hosts')
+  } catch {
+    // error handled by interceptor
+  }
+}
+
+function handleScreen() {
+  router.push({
+    name: 'screen',
+    params: { hostId: hostId.value },
+    query: { name: hostInfo.value?.hostname }
+  })
+}
+
+function goBack() {
+  router.push('/hosts')
+}
+
+const processColumns = [
+  { title: 'PID', dataIndex: 'pid', key: 'pid', width: 80 },
+  { title: '进程名', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
+  { title: '用户', dataIndex: 'user', key: 'user', width: 100 },
+  { title: 'CPU %', dataIndex: 'cpuPercent', key: 'cpuPercent', width: 90, align: 'right' as const, sorter: (a: ProcessRecord, b: ProcessRecord) => a.cpuPercent - b.cpuPercent },
+  { title: '内存 %', dataIndex: 'memoryPercent', key: 'memoryPercent', width: 90, align: 'right' as const, sorter: (a: ProcessRecord, b: ProcessRecord) => a.memoryPercent - b.memoryPercent },
+  { title: '内存', dataIndex: 'memoryMb', key: 'memoryMb', width: 90, align: 'right' as const },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 80 },
+  { title: '规则', key: 'rule', width: 100, align: 'center' as const },
+  { title: '命令行', dataIndex: 'command', key: 'command', ellipsis: true }
+]
+
+const ruleColumns = [
+  { title: '进程名', dataIndex: 'processName', key: 'processName' },
+  { title: '规则类型', dataIndex: 'ruleType', key: 'ruleType', width: 120 },
+  { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
+  { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 }
+]
+
+function getUsageColor(usage: number | null): string {
+  if (usage === null) return '#1890ff'
+  if (usage >= 90) return '#ff4d4f'
+  if (usage >= 70) return '#faad14'
+  return '#52c41a'
+}
+
+function getProcessRuleTag(record: ProcessRecord) {
+  if (record.isBlacklisted) return { text: '黑名单', color: 'red' }
+  if (record.isWhitelisted) return { text: '白名单', color: 'green' }
+  return null
+}
+
+onMounted(async () => {
+  await fetchHostDetail()
+  fetchMetric()
+  fetchProcesses()
+  await nextTick()
+  initChart()
+  window.addEventListener('resize', handleResize)
+  refreshTimer = setInterval(() => {
+    fetchMetric()
+    fetchMetricHistory()
+    if (activeTab.value === 'process') {
+      fetchProcesses()
+    }
+  }, 10000)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  window.removeEventListener('resize', handleResize)
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+})
+</script>
+
+<template>
+  <div class="host-detail" v-if="hostInfo">
+    <div class="detail-header">
+      <div class="header-left">
+        <a-button @click="goBack">
+          <ArrowLeftOutlined />
+          返回
+        </a-button>
+        <div class="host-title">
+          <DesktopOutlined style="font-size: 20px; color: #1890ff" />
+          <h2>{{ hostInfo.hostname }}</h2>
+          <a-badge
+            :status="hostInfo.status === 1 ? 'success' : 'default'"
+            :text="hostInfo.status === 1 ? '在线' : '离线'"
+          />
+        </div>
+        <span class="host-ip">{{ hostInfo.ipAddress }}</span>
+      </div>
+      <div class="header-right">
+        <a-button @click="handleRefresh" :loading="loading">
+          <ReloadOutlined />
+          刷新
+        </a-button>
+        <a-button @click="handleScreen">
+          <MonitorOutlined />
+          屏幕监控
+        </a-button>
+        <a-popconfirm v-if="isAdmin" title="确定删除该主机？" ok-text="确定" cancel-text="取消" @confirm="handleDeleteHost">
+          <a-button danger>
+            <DeleteOutlined />
+            删除
+          </a-button>
+        </a-popconfirm>
+      </div>
+    </div>
+
+    <a-tabs v-model:activeKey="activeTab" class="detail-tabs" @change="(key: string) => { if (key === 'rules') fetchProcessRules() }">
+      <a-tab-pane key="overview" tab="概览">
+        <a-row :gutter="[24, 24]">
+          <a-col :span="24" :lg="14">
+            <a-card title="性能趋势" :bordered="false" class="section-card">
+              <template #extra>
+                <a-radio-group v-model:value="metricRange" size="small" button-style="solid">
+                  <a-radio-button v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </a-radio-button>
+                </a-radio-group>
+              </template>
+              <div ref="chartRef" class="metric-chart"></div>
+            </a-card>
+          </a-col>
+
+          <a-col :span="24" :lg="10">
+            <a-card title="硬件信息" :bordered="false" class="section-card">
+              <a-descriptions :column="1" size="small" bordered>
+                <a-descriptions-item label="CPU 型号">{{ hostInfo.cpuModel || '-' }}</a-descriptions-item>
+                <a-descriptions-item label="CPU 核心">{{ hostInfo.cpuCores ? hostInfo.cpuCores + ' 核' : '-' }}</a-descriptions-item>
+                <a-descriptions-item label="内存总量">{{ formatBytes(hostInfo.memoryTotal) }}</a-descriptions-item>
+                <a-descriptions-item label="硬盘总量">{{ formatBytes(hostInfo.diskTotal) }}</a-descriptions-item>
+                <a-descriptions-item label="操作系统">{{ (hostInfo.osName || '-') + (hostInfo.osVersion ? ' ' + hostInfo.osVersion : '') }}</a-descriptions-item>
+              </a-descriptions>
+            </a-card>
+          </a-col>
+
+          <a-col :span="24" :lg="14">
+            <a-card title="实时性能" :bordered="false" class="section-card">
+              <a-row :gutter="[24, 20]">
+                <a-col :span="8">
+                  <div class="gauge-item">
+                    <a-progress
+                      type="dashboard"
+                      :percent="metric?.cpuUsage ?? 0"
+                      :stroke-color="getUsageColor(metric?.cpuUsage ?? null)"
+                      :width="120"
+                    >
+                      <template #format="{ percent }">
+                        <span class="gauge-value">{{ percent }}%</span>
+                      </template>
+                    </a-progress>
+                    <div class="gauge-label">CPU 使用率</div>
+                  </div>
+                </a-col>
+                <a-col :span="8">
+                  <div class="gauge-item">
+                    <a-progress
+                      type="dashboard"
+                      :percent="metric?.memoryUsage ?? 0"
+                      :stroke-color="getUsageColor(metric?.memoryUsage ?? null)"
+                      :width="120"
+                    >
+                      <template #format="{ percent }">
+                        <span class="gauge-value">{{ percent }}%</span>
+                      </template>
+                    </a-progress>
+                    <div class="gauge-label">内存使用率</div>
+                    <div class="gauge-detail">
+                      {{ formatBytes(metric?.memoryUsed ?? null) }} / {{ formatBytes(hostInfo.memoryTotal) }}
+                    </div>
+                  </div>
+                </a-col>
+                <a-col :span="8">
+                  <div class="gauge-item">
+                    <a-progress
+                      type="dashboard"
+                      :percent="metric?.diskUsage ?? 0"
+                      :stroke-color="getUsageColor(metric?.diskUsage ?? null)"
+                      :width="120"
+                    >
+                      <template #format="{ percent }">
+                        <span class="gauge-value">{{ percent }}%</span>
+                      </template>
+                    </a-progress>
+                    <div class="gauge-label">硬盘使用率</div>
+                    <div class="gauge-detail">
+                      {{ formatBytes(metric?.diskUsed ?? null) }} / {{ formatBytes(hostInfo.diskTotal) }}
+                    </div>
+                  </div>
+                </a-col>
+              </a-row>
+              <div class="metric-time" v-if="metric?.collectTime">
+                数据采集时间：{{ metric.collectTime.replace('T', ' ').substring(0, 19) }}
+              </div>
+            </a-card>
+          </a-col>
+
+          <a-col :span="24" :lg="10">
+            <a-card title="基本信息" :bordered="false" class="section-card">
+              <a-descriptions :column="1" size="small" bordered>
+                <a-descriptions-item label="主机名">{{ hostInfo.hostname }}</a-descriptions-item>
+                <a-descriptions-item label="IP 地址">{{ hostInfo.ipAddress }}</a-descriptions-item>
+                <a-descriptions-item label="所属用户">{{ hostInfo.username || '-' }}</a-descriptions-item>
+                <a-descriptions-item label="所属分组">{{ hostInfo.groupName || '未分组' }}</a-descriptions-item>
+                <a-descriptions-item label="最后心跳">{{ timeAgo(hostInfo.lastHeartbeat) }}</a-descriptions-item>
+                <a-descriptions-item label="注册时间">{{ hostInfo.createTime ? hostInfo.createTime.replace('T', ' ').substring(0, 19) : '-' }}</a-descriptions-item>
+              </a-descriptions>
+            </a-card>
+          </a-col>
+        </a-row>
+      </a-tab-pane>
+
+      <a-tab-pane key="process" tab="进程监控">
+        <div class="process-toolbar">
+          <span class="process-count">共 {{ processList.length }} 个进程</span>
+          <a-button size="small" @click="fetchProcesses" :loading="processLoading">
+            <ReloadOutlined />
+            刷新
+          </a-button>
+        </div>
+        <a-table
+          :columns="processColumns"
+          :data-source="processList"
+          :loading="processLoading"
+          :pagination="{ pageSize: 20, showTotal: (t: number) => `共 ${t} 个进程` }"
+          row-key="pid"
+          size="small"
+          :scroll="{ x: 1000 }"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'cpuPercent'">
+              <span :style="{ color: record.cpuPercent > 80 ? '#ff4d4f' : record.cpuPercent > 50 ? '#faad14' : '' }">
+                {{ record.cpuPercent.toFixed(1) }}%
+              </span>
+            </template>
+            <template v-if="column.key === 'memoryPercent'">
+              <span :style="{ color: record.memoryPercent > 80 ? '#ff4d4f' : record.memoryPercent > 50 ? '#faad14' : '' }">
+                {{ record.memoryPercent.toFixed(1) }}%
+              </span>
+            </template>
+            <template v-if="column.key === 'memoryMb'">
+              {{ record.memoryMb.toFixed(1) }} MB
+            </template>
+            <template v-if="column.key === 'rule'">
+              <template v-if="getProcessRuleTag(record)">
+                <a-tag :color="getProcessRuleTag(record)!.color">
+                  {{ getProcessRuleTag(record)!.text }}
+                </a-tag>
+              </template>
+              <template v-else>
+                <span style="color: #999">-</span>
+              </template>
+            </template>
+          </template>
+        </a-table>
+      </a-tab-pane>
+
+      <a-tab-pane key="rules" tab="进程规则">
+        <div class="rules-toolbar">
+          <a-alert
+            v-if="!hostInfo.groupId"
+            message="该主机未分配分组，无法设置进程规则"
+            type="warning"
+            show-icon
+            style="margin-bottom: 16px"
+          />
+        </div>
+
+        <a-table
+          :columns="ruleColumns"
+          :data-source="processRules"
+          :pagination="false"
+          row-key="id"
+          size="small"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'ruleType'">
+              <a-tag :color="record.ruleType === 'BLACKLIST' ? 'red' : 'green'">
+                <template v-if="record.ruleType === 'BLACKLIST'">
+                  <CloseCircleOutlined /> 黑名单
+                </template>
+                <template v-else>
+                  <CheckCircleOutlined /> 白名单
+                </template>
+              </a-tag>
+            </template>
+            <template v-if="column.key === 'createTime'">
+              {{ record.createTime ? record.createTime.replace('T', ' ').substring(0, 19) : '-' }}
+            </template>
+          </template>
+        </a-table>
+
+        <a-empty v-if="processRules.length === 0 && hostInfo.groupId" description="暂无进程规则" style="margin-top: 40px" />
+      </a-tab-pane>
+    </a-tabs>
+  </div>
+
+  <div v-else class="loading-wrapper">
+    <a-spin size="large" />
+  </div>
+</template>
+
+<style scoped>
+.host-detail {
+  height: 100%;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.host-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.host-title h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.host-ip {
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
+.header-right {
+  display: flex;
+  gap: 8px;
+}
+
+.section-card {
+  border-radius: 8px;
+}
+
+.gauge-item {
+  text-align: center;
+}
+
+.gauge-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.gauge-label {
+  margin-top: 8px;
+  font-size: 14px;
+  color: #595959;
+}
+
+.gauge-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.metric-time {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: #bfbfbf;
+}
+
+.metric-chart {
+  width: 100%;
+  height: 300px;
+}
+
+.process-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.process-count {
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
+.loading-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+</style>

@@ -106,6 +106,14 @@ function handleScreen(record: HostRecord) {
   })
 }
 
+function handleDetail(record: HostRecord) {
+  router.push({
+    name: 'hostDetail',
+    params: { hostId: record.id },
+    query: { name: record.hostname }
+  })
+}
+
 onMounted(() => {
   fetchHosts()
 })
@@ -163,7 +171,7 @@ onMounted(() => {
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
-            <a-button type="link" size="small">详情</a-button>
+            <a-button type="link" size="small" @click="handleDetail(record)">详情</a-button>
             <a-button type="link" size="small" @click="handleScreen(record)">监控</a-button>
             <a-popconfirm v-if="isAdmin" title="确定删除该主机？" ok-text="确定" cancel-text="取消" @confirm="handleDelete(record.id)">
               <a-button type="link" size="small" danger>删除</a-button>

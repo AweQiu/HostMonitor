@@ -4,16 +4,29 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.ylh.backend.Dto.HostVO;
+import com.ylh.backend.Entity.Group;
 import com.ylh.backend.Entity.HostInfo;
+import com.ylh.backend.Entity.HostMetric;
 import com.ylh.backend.Entity.User;
+import com.ylh.backend.Mapper.GroupMapper;
 import com.ylh.backend.Mapper.HostInfoMapper;
+import com.ylh.backend.Mapper.HostMetricMapper;
+import com.ylh.backend.Mapper.UserMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
+
+    private final UserMapper userMapper;
+    private final GroupMapper groupMapper;
+    private final HostMetricMapper hostMetricMapper;
 
     public Page<HostInfo> pageList(int page, int size, String keyword) {
         Page<HostInfo> pageParam = new Page<>(page, size);
@@ -69,6 +82,55 @@ public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
         return host != null && userIds.contains(host.getUserId());
     }
 
+    public HostVO.MetricVO getLatestMetric(Long hostId) {
+        HostMetric metric = hostMetricMapper.selectOne(
+                new LambdaQueryWrapper<HostMetric>()
+                        .eq(HostMetric::getHostId, hostId)
+                        .orderByDesc(HostMetric::getCollectTime)
+                        .last("LIMIT 1")
+        );
+        if (metric == null) {
+            return null;
+        }
+        HostVO.MetricVO vo = new HostVO.MetricVO();
+        vo.setCpuUsage(metric.getCpuUsage());
+        vo.setMemoryUsage(metric.getMemoryUsage());
+        vo.setDiskUsage(metric.getDiskUsage());
+        vo.setMemoryUsed(metric.getMemoryUsed());
+        vo.setDiskUsed(metric.getDiskUsed());
+        vo.setCollectTime(metric.getCollectTime());
+        return vo;
+    }
+
+    public List<HostVO.MetricHistoryVO> getMetricHistory(Long hostId, String range) {
+        LocalDateTime since = parseRange(range);
+        List<HostMetric> metrics = hostMetricMapper.selectList(
+                new LambdaQueryWrapper<HostMetric>()
+                        .eq(HostMetric::getHostId, hostId)
+                        .ge(HostMetric::getCollectTime, since)
+                        .orderByAsc(HostMetric::getCollectTime)
+        );
+        return metrics.stream().map(m -> {
+            HostVO.MetricHistoryVO vo = new HostVO.MetricHistoryVO();
+            vo.setCollectTime(m.getCollectTime());
+            vo.setCpuUsage(m.getCpuUsage());
+            vo.setMemoryUsage(m.getMemoryUsage());
+            vo.setDiskUsage(m.getDiskUsage());
+            return vo;
+        }).collect(Collectors.toList());
+    }
+
+    private LocalDateTime parseRange(String range) {
+        LocalDateTime now = LocalDateTime.now();
+        if (range == null) return now.minusHours(1);
+        return switch (range) {
+            case "6h" -> now.minusHours(6);
+            case "24h" -> now.minusHours(24);
+            case "7d" -> now.minusDays(7);
+            default -> now.minusHours(1);
+        };
+    }
+
     public HostVO toVO(HostInfo host) {
         HostVO vo = new HostVO();
         vo.setId(host.getId());
@@ -82,6 +144,22 @@ public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
         vo.setOsVersion(host.getOsVersion());
         vo.setStatus(host.getStatus());
         vo.setLastHeartbeat(host.getLastHeartbeat());
+        vo.setUserId(host.getUserId());
+        vo.setCreateTime(host.getCreateTime());
+
+        if (host.getUserId() != null) {
+            User user = userMapper.selectById(host.getUserId());
+            if (user != null) {
+                vo.setUsername(user.getUsername());
+                vo.setGroupId(user.getGroupId());
+                if (user.getGroupId() != null) {
+                    Group group = groupMapper.selectById(user.getGroupId());
+                    if (group != null) {
+                        vo.setGroupName(group.getGroupName());
+                    }
+                }
+            }
+        }
         return vo;
     }
 

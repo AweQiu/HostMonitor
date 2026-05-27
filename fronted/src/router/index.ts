@@ -38,6 +38,12 @@ const router = createRouter({
           meta: { requiresAuth: true, title: '主机管理' }
         },
         {
+          path: 'hosts/:hostId',
+          name: 'hostDetail',
+          component: () => import('../views/HostDetailView.vue'),
+          meta: { requiresAuth: true, title: '主机详情' }
+        },
+        {
           path: 'hosts/:hostId/screen',
           name: 'screen',
           component: () => import('../views/ScreenView.vue'),
