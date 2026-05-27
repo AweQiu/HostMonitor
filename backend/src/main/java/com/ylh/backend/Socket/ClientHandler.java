@@ -43,6 +43,7 @@ public class ClientHandler implements Runnable {
     private final StringBuilder messageBuffer = new StringBuilder();
     private final AtomicLong lastActiveTime = new AtomicLong(System.currentTimeMillis());
     private final long connectTime = System.currentTimeMillis();
+    private volatile OutputStream clientOutputStream = null;
 
     public ClientHandler(Socket clientSocket, long connectionId,
                          UserService userService, HostInfoService hostInfoService,
@@ -63,6 +64,7 @@ public class ClientHandler implements Runnable {
         try (InputStream inputStream = clientSocket.getInputStream();
              OutputStream outputStream = clientSocket.getOutputStream()) {
 
+            clientOutputStream = outputStream;
             sendResponse(outputStream, "CONNECTED:HostMonitor Server v1.0");
 
             byte[] buffer = new byte[BUFFER_SIZE];
@@ -92,6 +94,7 @@ public class ClientHandler implements Runnable {
         } catch (IOException e) {
             log.info("[#{}] Client disconnected: {}", connectionId, e.getMessage());
         } finally {
+            clientOutputStream = null;
             cleanupConnection();
             closeQuietly();
             log.info("[#{}] Handler finished for: {}", connectionId, clientAddress);
@@ -291,6 +294,22 @@ public class ClientHandler implements Runnable {
                 clientSocket.close();
             }
         } catch (IOException ignored) {
+        }
+    }
+
+    public void sendCommand(String command) {
+        OutputStream os = clientOutputStream;
+        if (os == null) {
+            log.warn("[#{}] Cannot send command '{}', no output stream", connectionId, command);
+            return;
+        }
+        try {
+            synchronized (os) {
+                os.write((command + "\n").getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+        } catch (IOException e) {
+            log.warn("[#{}] Failed to send command '{}': {}", connectionId, command, e.getMessage());
         }
     }
 

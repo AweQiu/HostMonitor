@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import request from '@/utils/request'
@@ -20,6 +21,7 @@ interface HostRecord {
 }
 
 const userStore = useUserStore()
+const router = useRouter()
 const searchText = ref('')
 const loading = ref(false)
 const hostData = ref<HostRecord[]>([])
@@ -96,6 +98,14 @@ async function handleDelete(id: number) {
   }
 }
 
+function handleScreen(record: HostRecord) {
+  router.push({
+    name: 'screen',
+    params: { hostId: record.id },
+    query: { name: record.hostname }
+  })
+}
+
 onMounted(() => {
   fetchHosts()
 })
@@ -154,7 +164,7 @@ onMounted(() => {
         <template v-if="column.key === 'action'">
           <a-space>
             <a-button type="link" size="small">详情</a-button>
-            <a-button type="link" size="small">监控</a-button>
+            <a-button type="link" size="small" @click="handleScreen(record)">监控</a-button>
             <a-popconfirm v-if="isAdmin" title="确定删除该主机？" ok-text="确定" cancel-text="取消" @confirm="handleDelete(record.id)">
               <a-button type="link" size="small" danger>删除</a-button>
             </a-popconfirm>

@@ -1,18 +1,25 @@
 package com.ylh.client;
 
-import com.ylh.client.models.HostInfo;
-import com.ylh.client.models.HostMetric;
+import com.ylh.client.core.MetricReporter;
+import com.ylh.client.core.ScreenStreamer;
 import com.ylh.client.network.NetworkClient;
-import com.ylh.client.utils.CollectionUtil;
+import com.ylh.client.network.UdpSender;
 import com.ylh.client.utils.ConfigUtil;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 
 public class MonitorClient {
 
-    public static void main(String[] args) {
+    private NetworkClient client;
+    private MetricReporter metricReporter;
+    private ScreenStreamer screenStreamer;
+    private UdpSender udpSender;
+    private boolean screenEnabled;
+    private int screenFps;
+    private float jpegQuality;
+
+    public void start() {
         Properties props = ConfigUtil.loadProperties("application.properties");
         String agentKey = props.getProperty("agent.key", "");
 
@@ -21,50 +28,88 @@ public class MonitorClient {
             return;
         }
 
-        NetworkClient client = new NetworkClient();
+        screenEnabled = Boolean.parseBoolean(props.getProperty("screen.enabled", "true"));
+        long metricInterval = Long.parseLong(props.getProperty("metric.interval.ms", "5000"));
+        screenFps = Integer.parseInt(props.getProperty("screen.fps", "5"));
+        jpegQuality = Float.parseFloat(props.getProperty("screen.jpeg.quality", "0.5"));
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("Shutting down...");
-            client.disconnect();
-        }));
+        client = new NetworkClient();
+
+        Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
 
         try {
             client.connect();
             System.out.println("Connected to " + client.getHost() + ":" + client.getPort());
 
-            Thread.sleep(500);
-            byte[] welcome = client.receive(4096);
-            System.out.println("Server: " + new String(welcome, StandardCharsets.UTF_8).trim());
-
-            client.send(("AUTH:" + agentKey + "\n").getBytes(StandardCharsets.UTF_8));
-            Thread.sleep(500);
-            byte[] authResp = client.receive(4096);
-            String authResult = new String(authResp, StandardCharsets.UTF_8).trim();
-            System.out.println("Auth: " + authResult);
-
-            if (!authResult.contains("OK")) {
-                System.err.println("Authentication failed, exiting.");
-                client.disconnect();
+            if (!client.authenticate(agentKey)) {
+                System.err.println("Authentication failed");
                 return;
             }
 
-            HostInfo hostInfo = CollectionUtil.collectHostInfo();
-            client.send((hostInfo.toString() + "\n").getBytes(StandardCharsets.UTF_8));
-            Thread.sleep(500);
-            byte[] hostResp = client.receive(4096);
-            System.out.println("HostInfo: " + new String(hostResp, StandardCharsets.UTF_8).trim());
+            client.sendHostInfo();
 
-            while (true) {
-                HostMetric metric = CollectionUtil.collectMetric();
-                client.send((metric.toString() + "\n").getBytes(StandardCharsets.UTF_8));
-                Thread.sleep(1000);
+            metricReporter = new MetricReporter(client, metricInterval);
+            metricReporter.start();
+
+            if (screenEnabled) {
+                udpSender = new UdpSender();
+
+                client.setCommandHandler(command -> {
+                    System.out.println("Received command: " + command);
+                    if ("SCREEN_START".equals(command)) {
+                        startScreenStreaming();
+                    } else if ("SCREEN_STOP".equals(command)) {
+                        stopScreenStreaming();
+                    }
+                });
+
+                client.startListening();
+                System.out.println("Screen streaming is on-demand, waiting for SCREEN_START command...");
             }
+
+            Thread.currentThread().join();
         } catch (IOException e) {
             System.err.println("Connection error: " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } finally {
-            client.disconnect();
+            stop();
         }
+    }
+
+    private synchronized void startScreenStreaming() {
+        if (screenStreamer != null && screenStreamer.isRunning()) {
+            return;
+        }
+        screenStreamer = new ScreenStreamer(udpSender, screenFps, jpegQuality);
+        screenStreamer.start();
+    }
+
+    private synchronized void stopScreenStreaming() {
+        if (screenStreamer != null) {
+            screenStreamer.stop();
+            screenStreamer = null;
+        }
+    }
+
+    public void stop() {
+        stopScreenStreaming();
+        if (udpSender != null) {
+            udpSender.disconnect();
+            udpSender = null;
+        }
+        if (metricReporter != null) {
+            metricReporter.stop();
+            metricReporter = null;
+        }
+        if (client != null) {
+            client.disconnect();
+            client = null;
+        }
+        System.out.println("Monitor client stopped");
+    }
+
+    public static void main(String[] args) {
+        new MonitorClient().start();
     }
 }

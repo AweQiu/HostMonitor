@@ -33,6 +33,7 @@ public class SocketServer {
     private final UserService userService;
     private final HostInfoService hostInfoService;
     private final HostMetricMapper hostMetricMapper;
+    private final ScreenStreamManager screenStreamManager;
 
     private ServerSocket serverSocket;
     private volatile boolean running = false;
@@ -41,14 +42,28 @@ public class SocketServer {
     private final ConcurrentHashMap<Long, ClientHandler> clients = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Long> userConnectionMap = new ConcurrentHashMap<>();
 
-    public SocketServer(UserService userService, HostInfoService hostInfoService, HostMetricMapper hostMetricMapper) {
+    public SocketServer(UserService userService, HostInfoService hostInfoService,
+                        HostMetricMapper hostMetricMapper, ScreenStreamManager screenStreamManager) {
         this.userService = userService;
         this.hostInfoService = hostInfoService;
         this.hostMetricMapper = hostMetricMapper;
+        this.screenStreamManager = screenStreamManager;
     }
 
     @PostConstruct
     public void start() {
+        screenStreamManager.setSubscriptionListener(new ScreenStreamManager.ScreenSubscriptionListener() {
+            @Override
+            public void onFirstSubscriber(Long userId) {
+                sendCommandToUser(userId, "SCREEN_START");
+            }
+
+            @Override
+            public void onLastSubscriberLeft(Long userId) {
+                sendCommandToUser(userId, "SCREEN_STOP");
+            }
+        });
+
         Thread serverThread = new Thread(this::listen, "socket-server");
         serverThread.setDaemon(true);
         serverThread.start();
@@ -178,5 +193,21 @@ public class SocketServer {
 
     public boolean isRunning() {
         return running;
+    }
+
+    public void sendCommandToUser(Long userId, String command) {
+        if (userId == null || command == null) return;
+        Long connId = userConnectionMap.get(userId);
+        if (connId == null) {
+            log.warn("No TCP connection found for user {}, cannot send command: {}", userId, command);
+            return;
+        }
+        ClientHandler handler = clients.get(connId);
+        if (handler == null) {
+            log.warn("No ClientHandler found for connection #{}, cannot send command: {}", connId, command);
+            return;
+        }
+        handler.sendCommand(command);
+        log.info("Sent command '{}' to user {} via connection #{}", command, userId, connId);
     }
 }

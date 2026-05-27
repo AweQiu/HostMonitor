@@ -47,18 +47,26 @@ const tabTitleMap: Record<string, string> = {
   hosts: '主机管理',
   users: '用户管理',
   groups: '组织管理',
-  settings: '系统设置'
+  settings: '系统设置',
+  screen: '屏幕监控'
 }
 
 watch(
   () => route.path,
   (path) => {
-    const key = tabKeyMap[path]
+    let key = tabKeyMap[path] || ''
+    let title = tabTitleMap[key] || key
+
+    if (path.match(/^\/hosts\/\d+\/screen$/)) {
+      key = 'screen'
+      title = '屏幕监控'
+    }
+
     if (key) {
-      selectedKeys.value = [key]
+      selectedKeys.value = [key === 'screen' ? 'hosts' : key]
       const tab: TabItem = {
         key,
-        title: tabTitleMap[key] || key,
+        title,
         path,
         closable: key !== 'dashboard'
       }
