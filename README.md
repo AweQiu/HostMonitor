@@ -8,15 +8,15 @@
 
 ### 后端技术栈
 
-Java 21 / Spring Boot 3.4.7 / Spring Security 6.4.x / MyBatis-Plus 3.5.9 / MySQL 8.0+ / JWT (jjwt 0.12.6) / WebSocket / Lombok
+Java 21 / Spring Boot 3.4.7 / Spring Security 6.4.x / MyBatis-Plus 3.5.9 / MySQL 8.0+ / JWT (jjwt 0.12.6) / WebSocket / Jackson / Lombok
 
 ### 前端技术栈
 
-Vue 3.5.x / TypeScript 6.0.x / Vite 8.0.x / Pinia 3.0.x / Ant Design Vue 4.2.x / Vue Router 5.0.x / Axios
+Vue 3.5.x / TypeScript 6.0.x / Vite 8.0.x / Pinia 3.0.x / Ant Design Vue 4.2.x / Vue Router 5.0.x / Axios / ECharts 6.1.x
 
 ### 客户端技术栈
 
-Java 21 / OSHI 6.6.5 / Java AWT Robot / UDP/TCP Socket / Lombok
+Java 21 / OSHI 6.6.5 / Gson 2.11.0 / Java AWT Robot / UDP/TCP Socket / Lombok
 
 ***
 
@@ -37,13 +37,13 @@ Java 21 / OSHI 6.6.5 / Java AWT Robot / UDP/TCP Socket / Lombok
 CREATE DATABASE host_monitor DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-2. **导入初始化脚本**
+1. **导入初始化脚本**
 
 ```bash
 mysql -u username -p host_monitor < sql/init.sql
 ```
 
-3. **配置数据库连接**
+1. **配置数据库连接**
 
 修改 `backend/src/main/resources/application.properties`:
 
@@ -53,7 +53,7 @@ spring.datasource.username=root
 spring.datasource.password=your_password
 ```
 
-4. **启动服务**
+1. **启动服务**
 
 ```bash
 cd backend
@@ -108,7 +108,7 @@ mvn compile exec:java
 ┌─────────────────────┐     HTTP/REST API      ┌─────────────────────┐
 │      前端 (Vue 3)   │ ──────────────────────> │      后端 (Spring)  │
 │   localhost:5173    │ <────────────────────── │    localhost:8080   │
-│                     │     WebSocket / SSE     │                     │
+│                     │     WebSocket           │                     │
 └─────────────────────┘                        └───────────┬─────────┘
                                                            │
                                                            │ TCP (12345) 认证/指令/指标
@@ -129,19 +129,79 @@ mvn compile exec:java
 
 ***
 
+## 通信协议
+
+客户端与服务端之间通过 TCP 长连接通信，采用统一的 `TYPE|JSON_BODY\n` 文本协议格式：
+
+- `TYPE`：消息类型标识（大写下划线风格）
+- `|`：类型与消息体的分隔符
+- `JSON_BODY`：JSON 编码的消息体
+- `\n`：消息边界分隔符
+
+### 消息类型
+
+**客户端 → 服务端**：
+
+| TYPE          | Body 结构              | 说明       |
+| ------------- | -------------------- | -------- |
+| `AUTH`        | `{"agentKey":"xxx"}` | 认证请求     |
+| `HOST_INFO`   | HostInfo 字段 JSON     | 主机静态信息上报 |
+| `HOST_METRIC` | HostMetric 字段 JSON   | 性能指标上报   |
+
+**服务端 → 客户端**：
+
+| TYPE        | Body 结构                      | 说明             |
+| ----------- | ---------------------------- | -------------- |
+| `CONNECTED` | `{"version":"1.0"}`          | 连接欢迎消息         |
+| `OK`        | `{"message":"xxx","id":n}`   | 操作成功（id 为可选字段） |
+| `ERROR`     | `{"message":"xxx"}`          | 操作失败           |
+| `CMD`       | `{"command":"SCREEN_START"}` | 下发命令           |
+
+### 通信示例
+
+```
+客户端                              服务端
+  |------- TCP 连接建立 -------------->|
+  |<----- CONNECTED|{"version":"1.0"}-|  (欢迎消息)
+  |                                     |
+  |------- AUTH|{"agentKey":"xxx"} ---->|  (认证)
+  |<----- OK|{"message":"Authenticated"}| (认证成功)
+  |                                     |
+  |------- HOST_INFO|{...} ------------>|  (主机信息上报)
+  |<----- OK|{"message":"HostInfo received","id":1}| (确认)
+  |                                     |
+  |------- HOST_METRIC|{...} --------->|  (定时指标上报)
+  |      ...                            |
+  |                                     |
+  |<----- CMD|{"command":"SCREEN_START"}| (有用户订阅截屏)
+  |------- UDP帧(MAGIC+key+JPEG) ----->|  (截屏帧数据)
+  |      ...                            |
+  |<----- CMD|{"command":"SCREEN_STOP"}| (无用户订阅截屏)
+```
+
+### 协议扩展
+
+所有消息类型通过 `MessageConstants` 常量类统一管理，新增消息类型只需：
+
+1. 在 `MessageConstants` 中添加类型常量
+2. 定义消息体的 DTO 类
+3. 在 `ClientHandler.handleAuthenticatedMessage()` 中添加一个 `case` 分支
+
+***
+
 ## 权限模型
 
 系统采用 RBAC（基于角色的访问控制）模型，定义三种角色：
 
-| 角色 | 角色标识 | 说明 |
-|------|---------|------|
-| 超级管理员 | SUPER_ADMIN | 拥有系统所有权限，不属于任何分组，可管理所有用户、分组、主机 |
-| 组管理员 | GROUP_ADMIN | 管理本组用户和主机，可向组内发送通知 |
-| 普通用户 | USER | 查看仪表盘和性能指标 |
+| 角色    | 角色标识         | 说明                             |
+| ----- | ------------ | ------------------------------ |
+| 超级管理员 | SUPER\_ADMIN | 拥有系统所有权限，不属于任何分组，可管理所有用户、分组、主机 |
+| 组管理员  | GROUP\_ADMIN | 管理本组用户和主机，可向组内发送通知             |
+| 普通用户  | USER         | 查看仪表盘和性能指标                     |
 
 ### 权限规则
 
-- 超级管理员不属于任何分组（group_id 为 NULL），不可被加入分组、不可被删除、不可被降级
+- 超级管理员不属于任何分组（group\_id 为 NULL），不可被加入分组、不可被删除、不可被降级
 - 每个分组最多只能有一个组管理员
 - 组管理员只能管理本组内的用户和主机
 - 组管理员被移出分组时自动降级为普通用户
@@ -149,14 +209,14 @@ mvn compile exec:java
 
 ### 菜单权限
 
-| 菜单 | 超级管理员 | 组管理员 | 普通用户 |
-|------|:---------:|:-------:|:-------:|
-| 仪表盘 | ✅ | ✅ | ✅ |
-| 主机管理 | ✅ | ✅ | ✅ |
-| 用户管理 | ✅ | ✅（本组） | ❌ |
-| 组织管理 | ✅ | ❌ | ❌ |
-| 通知管理 | ✅ | ✅（本组） | ✅（接收） |
-| 系统设置 | ✅ | ❌ | ❌ |
+| 菜单   | 超级管理员 |  组管理员 |  普通用户 |
+| ---- | :---: | :---: | :---: |
+| 仪表盘  |   ✅   |   ✅   |   ✅   |
+| 主机管理 |   ✅   |   ✅   |   ✅   |
+| 用户管理 |   ✅   | ✅（本组） |   ❌   |
+| 组织管理 |   ✅   |   ❌   |   ❌   |
+| 通知管理 |   ✅   | ✅（本组） | ✅（接收） |
+| 系统设置 |   ✅   |   ❌   |   ❌   |
 
 ***
 
@@ -182,6 +242,7 @@ mvn compile exec:java
 ### 3. 主机管理
 
 - 主机列表查询（分页、搜索）
+- 主机详情查看（含最新性能指标）
 - 主机状态监控（在线/离线）
 - 主机删除（需管理员权限）
 - 屏幕监控入口
@@ -201,6 +262,7 @@ mvn compile exec:java
 - 内存使用量/使用率
 - 磁盘使用量/使用率
 - 默认每 5 秒上报一次
+- 历史指标数据查询
 
 ### 6. 通知管理
 
@@ -225,9 +287,10 @@ mvn compile exec:java
 
 1. 用户注册时系统自动生成 UUID 格式的 Agent Key，存入 user 表
 2. 客户端启动时使用配置的 Agent Key 连接服务端 TCP Socket（端口 12345）
-3. 服务端验证 Agent Key 对应的用户，建立用户-主机一对一绑定
-4. 同一 Agent Key 仅允许一个客户端连接，重复连接将被拒绝
-5. 超级管理员可在用户管理界面重置 Agent Key，重置后自动断开该用户的客户端连接
+3. 客户端发送 `AUTH|{"agentKey":"xxx"}` 消息进行认证
+4. 服务端验证 Agent Key 对应的用户，建立用户-主机一对一绑定
+5. 同一 Agent Key 仅允许一个客户端连接，重复连接将被拒绝
+6. 超级管理员可在用户管理界面重置 Agent Key，重置后自动断开该用户的客户端连接
 
 ***
 
@@ -238,53 +301,32 @@ mvn compile exec:java
 1. 用户注册后，系统自动生成 Agent Key 并存入 user 表
 2. 用户将 Agent Key 配置到客户端的 `application.properties`
 3. 客户端启动后，通过 TCP Socket 连接服务端（端口 12345）
-4. 客户端发送 Agent Key 进行认证
+4. 客户端发送 `AUTH` 消息携带 Agent Key 进行认证
 5. 服务端验证 Agent Key，查找对应用户
 6. 认证成功后，客户端采集主机信息（CPU 型号、核心数、内存、磁盘、操作系统等）
-7. 客户端通过 TCP 上报主机信息，服务端创建或更新 host 表记录（user_id 关联）
-8. 连接建立后，客户端定期上报性能指标和心跳
+7. 客户端通过 `HOST_INFO` 消息上报主机信息，服务端创建或更新 host 表记录（user\_id 关联）
+8. 连接建立后，客户端定期通过 `HOST_METRIC` 消息上报性能指标和心跳
 
 ### 屏幕监控流程
 
 1. 前端点击"监控"按钮，建立 WebSocket 连接
-2. 后端检测到首个订阅者，通过 TCP 通知客户端开始截屏
+2. 后端检测到首个订阅者，通过 `CMD|{"command":"SCREEN_START"}` 通知客户端开始截屏
 3. 客户端使用 AWT Robot 截屏，JPEG 压缩后通过 UDP 发送（端口 12346）
 4. 后端接收 UDP 帧，通过 WebSocket 广播给所有订阅者
 5. 前端收到帧数据，通过 Canvas 双缓冲渲染显示
 6. 前端关闭页面，WebSocket 断开
-7. 后端检测到最后一个订阅者离开，通知客户端停止截屏
+7. 后端检测到最后一个订阅者离开，通过 `CMD|{"command":"SCREEN_STOP"}` 通知客户端停止截屏
 
 ### 性能指标监控流程
 
 1. 客户端启动 MetricReporter 定时任务（默认每 5 秒执行一次）
 2. 客户端使用 OSHI 库采集系统性能指标（CPU 使用率、内存使用率、磁盘使用率等）
-3. 客户端通过 TCP Socket 将性能指标发送到服务端
-4. 服务端解析指标数据，存入 host\_metric 表
+3. 客户端通过 `HOST_METRIC` 消息将性能指标发送到服务端
+4. 服务端解析 JSON 消息体，存入 host\_metric 表
 5. 服务端更新主机的最后心跳时间和在线状态
 6. 前端通过 HTTP 请求获取主机状态和历史指标数据
 
 ***
 
-## 数据库设计
+<br />
 
-系统共 9 张表，采用 RBAC 权限模型：
-
-| 表名 | 说明 |
-|------|------|
-| `user` | 用户表（id, username, email, password, agent\_key, avatar, status, group\_id） |
-| `role` | 角色表（id, role\_key, role\_name, description） |
-| `user_role` | 用户-角色关联表（user\_id, role\_id） |
-| `permission` | 权限表（id, perm\_key, perm\_name, parent\_id, type, sort\_order） |
-| `role_permission` | 角色-权限关联表（role\_id, permission\_id） |
-| `group` | 分组表（id, group\_name, description） |
-| `host` | 主机信息表（id, user\_id, hostname, ip\_address, cpu\_model, cpu\_cores, memory\_total, disk\_total, os\_name, os\_version, status, last\_heartbeat） |
-| `host_metric` | 性能指标表（id, host\_id, cpu\_usage, memory\_usage, disk\_usage, memory\_used, disk\_used, collect\_time） |
-| `notification` | 通知表（id, title, content, sender\_id, send\_type, target\_group\_id, target\_user\_ids, status） |
-| `user_notification` | 用户通知关联表（user\_id, notification\_id, is\_read, read\_time） |
-
-关键设计：
-
-- 用户与分组为多对一关系（user.group\_id → group.id），超级管理员 group\_id 为 NULL
-- 用户与主机为一对一关系（host.user\_id → user.id），通过 Agent Key 认证绑定
-- 用户与角色为多对多关系（通过 user\_role 关联表）
-- 通知支持三种发送类型：全体（send\_type=1）、分组（send\_type=2）、指定用户（send\_type=3）
