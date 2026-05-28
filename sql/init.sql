@@ -205,3 +205,14 @@ SELECT 2, id FROM `permission` WHERE `perm_key` IN ('monitor', 'monitor:host', '
 -- 为普通用户分配查看权限
 INSERT INTO `role_permission` (`role_id`, `permission_id`)
 SELECT 3, id FROM `permission` WHERE `perm_key` IN ('monitor:dashboard', 'monitor:metric');
+
+-- 开启事件调度器
+SET GLOBAL event_scheduler = ON;
+
+-- 定时清理30天前的性能指标数据（每天凌晨3点执行）
+CREATE EVENT IF NOT EXISTS `ev_clean_host_metric`
+ON SCHEDULE EVERY 1 DAY STARTS CONCAT(CURDATE() + INTERVAL 1 DAY, ' 03:00:00')
+ON COMPLETION PRESERVE ENABLE
+COMMENT '每天凌晨3点清理30天前的host_metric数据'
+DO
+  DELETE FROM `host_metric` WHERE `collect_time` < DATE_SUB(NOW(), INTERVAL 30 DAY);
