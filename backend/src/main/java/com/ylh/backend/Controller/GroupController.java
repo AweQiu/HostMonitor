@@ -18,6 +18,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
+import com.ylh.backend.Entity.ProcessRule;
+import com.ylh.backend.Service.ProcessRuleService;
 
 @Slf4j
 @RestController
@@ -29,6 +32,7 @@ public class GroupController {
     private final UserService userService;
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
+    private final ProcessRuleService processRuleService;
 
     @GetMapping
     public Result<List<GroupVO>> listGroups() {
@@ -205,9 +209,24 @@ public class GroupController {
     }
 
     @GetMapping("/{id}/process-rules")
-    public Result<List<Object>> getProcessRules(@PathVariable Long id) {
+    public Result<List<ProcessRuleVO>> getProcessRules(@PathVariable Long id) {
         checkSuperAdminPermission();
-        return Result.success(List.of());
+        List<ProcessRule> rules = processRuleService.getRulesByGroupId(id);
+        List<ProcessRuleVO> voList = rules.stream().map(rule -> {
+            ProcessRuleVO vo = new ProcessRuleVO();
+            vo.setId(rule.getId());
+            vo.setGroupId(rule.getGroupId());
+            vo.setProcessName(rule.getProcessName());
+            vo.setRuleType(rule.getRuleType());
+            vo.setDescription(rule.getDescription());
+            vo.setCreateTime(rule.getCreateTime());
+            Group group = groupService.getById(rule.getGroupId());
+            if (group != null) {
+                vo.setGroupName(group.getGroupName());
+            }
+            return vo;
+        }).collect(Collectors.toList());
+        return Result.success(voList);
     }
 
     private void assignGroupAdmin(Long groupId, Long userId) {

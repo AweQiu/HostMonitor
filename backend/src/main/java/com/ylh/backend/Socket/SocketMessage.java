@@ -84,6 +84,10 @@ public class SocketMessage {
                 "{\"command\":\"" + escapeJson(command) + "\"}");
     }
 
+    public static SocketMessage processResync() {
+        return command(MessageConstants.CMD_PROCESS_RESYNC);
+    }
+
     private static SocketMessage wrap(String type, Object data) {
         try {
             return new SocketMessage(type, OBJECT_MAPPER.writeValueAsString(data));

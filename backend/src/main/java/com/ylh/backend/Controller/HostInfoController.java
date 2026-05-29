@@ -121,14 +121,6 @@ public class HostInfoController {
         return Result.success(history);
     }
 
-    @GetMapping("/{id}/processes")
-    public Result<List<Object>> getProcesses(@PathVariable Long id) {
-        if (!checkHostAccess(id)) {
-            return Result.error(403, "无权查看该主机");
-        }
-        return Result.success(List.of());
-    }
-
     @DeleteMapping("/{id}")
     public Result<Void> deleteHost(@PathVariable Long id) {
         if (!checkHostAccess(id)) {

@@ -3,6 +3,7 @@ package com.ylh.client;
 import com.ylh.client.common.MessageConstants;
 import com.ylh.client.common.SocketMessage;
 import com.ylh.client.core.MetricReporter;
+import com.ylh.client.core.ProcessReporter;
 import com.ylh.client.core.ScreenStreamer;
 import com.ylh.client.network.NetworkClient;
 import com.ylh.client.network.UdpSender;
@@ -15,6 +16,7 @@ public class MonitorClient {
 
     private NetworkClient client;
     private MetricReporter metricReporter;
+    private ProcessReporter processReporter;
     private ScreenStreamer screenStreamer;
     private UdpSender udpSender;
     private boolean screenEnabled;
@@ -32,6 +34,7 @@ public class MonitorClient {
 
         screenEnabled = Boolean.parseBoolean(props.getProperty("screen.enabled", "true"));
         long metricInterval = Long.parseLong(props.getProperty("metric.interval.ms", "5000"));
+        long processInterval = Long.parseLong(props.getProperty("process.interval.ms", "15000"));
         screenFps = Integer.parseInt(props.getProperty("screen.fps", "5"));
         jpegQuality = Float.parseFloat(props.getProperty("screen.jpeg.quality", "0.5"));
 
@@ -53,6 +56,9 @@ public class MonitorClient {
             metricReporter = new MetricReporter(client, metricInterval);
             metricReporter.start();
 
+            processReporter = new ProcessReporter(client, processInterval);
+            processReporter.start();
+
             if (screenEnabled) {
                 udpSender = new UdpSender();
 
@@ -64,6 +70,10 @@ public class MonitorClient {
                             startScreenStreaming();
                         } else if (MessageConstants.CMD_SCREEN_STOP.equals(command)) {
                             stopScreenStreaming();
+                        } else if (MessageConstants.CMD_PROCESS_RESYNC.equals(command)) {
+                            if (processReporter != null) {
+                                processReporter.requestResync();
+                            }
                         }
                     }
                 });
@@ -106,6 +116,10 @@ public class MonitorClient {
         if (metricReporter != null) {
             metricReporter.stop();
             metricReporter = null;
+        }
+        if (processReporter != null) {
+            processReporter.stop();
+            processReporter = null;
         }
         if (client != null) {
             client.disconnect();

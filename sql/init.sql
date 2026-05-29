@@ -130,6 +130,43 @@ CREATE TABLE `host_metric` (
   CONSTRAINT `fk_metric_host` FOREIGN KEY (`host_id`) REFERENCES `host` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 主机进程表
+CREATE TABLE `host_process` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `host_id` BIGINT NOT NULL,
+  `pid` INT NOT NULL,
+  `ppid` INT DEFAULT NULL,
+  `name` VARCHAR(255) DEFAULT NULL,
+  `user` VARCHAR(128) DEFAULT NULL,
+  `cpu_usage` DECIMAL(10,4) DEFAULT NULL,
+  `memory_usage` DECIMAL(10,4) DEFAULT NULL,
+  `memory_used` BIGINT DEFAULT NULL,
+  `status` VARCHAR(32) DEFAULT NULL,
+  `start_time` DATETIME DEFAULT NULL,
+  `command_line` TEXT DEFAULT NULL,
+  `collect_time` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_host_collect` (`host_id`, `collect_time`),
+  KEY `idx_collect_time` (`collect_time`),
+  CONSTRAINT `fk_process_host` FOREIGN KEY (`host_id`) REFERENCES `host` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 进程规则表
+CREATE TABLE `process_rule` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `group_id` BIGINT NOT NULL,
+  `process_name` VARCHAR(255) NOT NULL,
+  `rule_type` VARCHAR(20) NOT NULL COMMENT 'WHITELIST或BLACKLIST',
+  `description` VARCHAR(255),
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_del` TINYINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_group_id` (`group_id`),
+  UNIQUE KEY `uk_group_process` (`group_id`, `process_name`),
+  CONSTRAINT `fk_rule_group` FOREIGN KEY (`group_id`) REFERENCES `group` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 通知表
 CREATE TABLE `notification` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
@@ -216,3 +253,11 @@ ON COMPLETION PRESERVE ENABLE
 COMMENT '每天凌晨3点清理30天前的host_metric数据'
 DO
   DELETE FROM `host_metric` WHERE `collect_time` < DATE_SUB(NOW(), INTERVAL 30 DAY);
+
+-- 定时清理48小时前的进程数据（每48小时凌晨4点执行）
+CREATE EVENT IF NOT EXISTS `ev_clean_host_process`
+ON SCHEDULE EVERY 48 HOUR STARTS CONCAT(CURDATE() + INTERVAL 1 DAY, ' 04:00:00')
+ON COMPLETION PRESERVE ENABLE
+COMMENT '每48小时清理48小时前的host_process数据'
+DO
+  DELETE FROM `host_process` WHERE `collect_time` < DATE_SUB(NOW(), INTERVAL 48 HOUR);

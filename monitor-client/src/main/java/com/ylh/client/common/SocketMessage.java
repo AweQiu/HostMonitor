@@ -83,6 +83,18 @@ public class SocketMessage {
         return wrap(MessageConstants.TYPE_HOST_METRIC, data);
     }
 
+    public static SocketMessage processList(Object data) {
+        return wrap(MessageConstants.TYPE_PROCESS_LIST, data);
+    }
+
+    public static SocketMessage processListFull(Object data) {
+        return wrap(MessageConstants.TYPE_PROCESS_LIST_FULL, data);
+    }
+
+    public static SocketMessage processListDelta(Object data) {
+        return wrap(MessageConstants.TYPE_PROCESS_LIST_DELTA, data);
+    }
+
     private static SocketMessage wrap(String type, Object data) {
         return new SocketMessage(type, GSON.toJson(data));
     }

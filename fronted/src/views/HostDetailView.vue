@@ -65,11 +65,12 @@ interface ProcessRecord {
   pid: number
   name: string
   user: string
-  cpuPercent: number
-  memoryPercent: number
-  memoryMb: number
+  cpuUsage: number
+  memoryUsage: number
+  memoryUsed: number
   status: string
-  command: string | null
+  commandLine: string | null
+  startTime: string | null
   isWhitelisted: boolean | null
   isBlacklisted: boolean | null
 }
@@ -91,11 +92,25 @@ const loading = ref(false)
 const processLoading = ref(false)
 const activeTab = ref('overview')
 const metricRange = ref('1h')
+const processSearch = ref('')
+
+const filteredProcessList = computed(() => {
+  if (!processSearch.value) return processList.value
+  const keyword = processSearch.value.toLowerCase()
+  return processList.value.filter(p =>
+    p.name.toLowerCase().includes(keyword) ||
+    String(p.pid).includes(keyword)
+  )
+})
 
 const chartRef = ref<HTMLDivElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+const metricQueue = ref<MetricHistory[]>([])
+let lastMetricTime: string | null = null
+let chartInitialized = false
 
 const rangeOptions = [
   { label: '1 小时', value: '1h' },
@@ -103,6 +118,13 @@ const rangeOptions = [
   { label: '24 小时', value: '24h' },
   { label: '7 天', value: '7d' }
 ]
+
+const rangeMs: Record<string, number> = {
+  '1h': 3600_000,
+  '6h': 6 * 3600_000,
+  '24h': 24 * 3600_000,
+  '7d': 7 * 24 * 3600_000
+}
 
 function formatBytes(bytes: number | null): string {
   if (bytes === null || bytes === undefined) return '-'
@@ -140,8 +162,11 @@ async function fetchMetric() {
   try {
     const data = await request.get(`/hosts/${hostId.value}/metrics/latest`)
     metric.value = data.data
-  } catch {
-    // ignore
+    if (chartInitialized && data.data?.collectTime) {
+      appendToQueue(data.data)
+    }
+  } catch (e) {
+    console.error('[HostDetail] fetchMetric error:', e)
   }
 }
 
@@ -150,9 +175,44 @@ async function fetchMetricHistory() {
     const data = await request.get(`/hosts/${hostId.value}/metrics/history`, {
       params: { range: metricRange.value }
     })
-    updateChart(data.data)
+    metricQueue.value = data.data || []
+    if (metricQueue.value.length > 0) {
+      lastMetricTime = metricQueue.value[metricQueue.value.length - 1]?.collectTime ?? null
+    }
+    renderChart()
   } catch {
     // ignore
+  }
+}
+
+function appendToQueue(m: MetricInfo) {
+  if (!m.collectTime) return
+  if (lastMetricTime && new Date(m.collectTime).getTime() <= new Date(lastMetricTime).getTime()) return
+
+  const gapMs = lastMetricTime
+    ? new Date(m.collectTime).getTime() - new Date(lastMetricTime).getTime()
+    : 0
+  if (gapMs > 60000) {
+    fetchMetricHistory()
+    return
+  }
+
+  metricQueue.value.push({
+    collectTime: m.collectTime,
+    cpuUsage: m.cpuUsage ?? 0,
+    memoryUsage: m.memoryUsage ?? 0,
+    diskUsage: m.diskUsage ?? 0
+  })
+  lastMetricTime = m.collectTime
+  trimQueue()
+  renderChart()
+}
+
+function trimQueue() {
+  const maxMs = rangeMs[metricRange.value] || rangeMs['1h']
+  const cutoff = Date.now() - (maxMs ?? rangeMs['1h'] ?? 3600_000)
+  while (metricQueue.value.length > 0 && metricQueue.value[0]?.collectTime && new Date(metricQueue.value[0].collectTime).getTime() < cutoff) {
+    metricQueue.value.shift()
   }
 }
 
@@ -269,15 +329,17 @@ function initChart() {
       }
     ]
   })
+  chartInitialized = true
   fetchMetricHistory()
 }
 
-function updateChart(history: MetricHistory[]) {
+function renderChart() {
   if (!chartInstance) return
-  const times = history.map(m => m.collectTime.replace('T', ' ').substring(0, 16))
-  const cpuData = history.map(m => m.cpuUsage)
-  const memData = history.map(m => m.memoryUsage)
-  const diskData = history.map(m => m.diskUsage)
+  const q = metricQueue.value
+  const times = q.map(m => m.collectTime.replace('T', ' ').substring(0, 16))
+  const cpuData = q.map(m => m.cpuUsage)
+  const memData = q.map(m => m.memoryUsage)
+  const diskData = q.map(m => m.diskUsage)
   chartInstance.setOption({
     xAxis: { data: times },
     series: [
@@ -292,8 +354,15 @@ function handleResize() {
   chartInstance?.resize()
 }
 
-watch(metricRange, () => {
-  fetchMetricHistory()
+watch(metricRange, (newRange, oldRange) => {
+  const newMs = rangeMs[newRange] || rangeMs['1h']
+  const oldMs = rangeMs[oldRange] || rangeMs['1h']
+  if (newMs! > oldMs!) {
+    fetchMetricHistory()
+  } else {
+    trimQueue()
+    renderChart()
+  }
 })
 
 function handleRefresh() {
@@ -302,6 +371,9 @@ function handleRefresh() {
   fetchMetricHistory()
   if (activeTab.value === 'process') {
     fetchProcesses()
+  }
+  if (activeTab.value === 'rules') {
+    fetchProcessRules()
   }
 }
 
@@ -328,15 +400,14 @@ function goBack() {
 }
 
 const processColumns = [
-  { title: 'PID', dataIndex: 'pid', key: 'pid', width: 80 },
-  { title: '进程名', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
+  { title: 'PID', dataIndex: 'pid', key: 'pid', width: 80, sorter: (a: ProcessRecord, b: ProcessRecord) => a.pid - b.pid },
+  { title: '进程名', dataIndex: 'name', key: 'name', width: 180, ellipsis: true },
   { title: '用户', dataIndex: 'user', key: 'user', width: 100 },
-  { title: 'CPU %', dataIndex: 'cpuPercent', key: 'cpuPercent', width: 90, align: 'right' as const, sorter: (a: ProcessRecord, b: ProcessRecord) => a.cpuPercent - b.cpuPercent },
-  { title: '内存 %', dataIndex: 'memoryPercent', key: 'memoryPercent', width: 90, align: 'right' as const, sorter: (a: ProcessRecord, b: ProcessRecord) => a.memoryPercent - b.memoryPercent },
-  { title: '内存', dataIndex: 'memoryMb', key: 'memoryMb', width: 90, align: 'right' as const },
+  { title: 'CPU %', dataIndex: 'cpuUsage', key: 'cpuUsage', width: 100, align: 'right' as const, sorter: (a: ProcessRecord, b: ProcessRecord) => a.cpuUsage - b.cpuUsage, defaultSortOrder: 'descend' as const },
+  { title: '内存 %', dataIndex: 'memoryUsage', key: 'memoryUsage', width: 100, align: 'right' as const, sorter: (a: ProcessRecord, b: ProcessRecord) => a.memoryUsage - b.memoryUsage },
+  { title: '内存', dataIndex: 'memoryUsed', key: 'memoryUsed', width: 100, align: 'right' as const },
   { title: '状态', dataIndex: 'status', key: 'status', width: 80 },
-  { title: '规则', key: 'rule', width: 100, align: 'center' as const },
-  { title: '命令行', dataIndex: 'command', key: 'command', ellipsis: true }
+  { title: '规则', key: 'rule', width: 100, align: 'center' as const }
 ]
 
 const ruleColumns = [
@@ -345,6 +416,26 @@ const ruleColumns = [
   { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
   { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 }
 ]
+
+const cpuPercent = computed(() => {
+  const v = metric.value?.cpuUsage
+  return v != null ? Number(Number(v).toFixed(1)) : 0
+})
+
+const memPercent = computed(() => {
+  const v = metric.value?.memoryUsage
+  return v != null ? Number(Number(v).toFixed(1)) : 0
+})
+
+const diskPercent = computed(() => {
+  const v = metric.value?.diskUsage
+  return v != null ? Number(Number(v).toFixed(1)) : 0
+})
+
+function formatPercent(percent: number | undefined) {
+  const v = percent ?? 0
+  return `${v.toFixed(1)}%`
+}
 
 function getUsageColor(usage: number | null): string {
   if (usage === null) return '#1890ff'
@@ -359,6 +450,12 @@ function getProcessRuleTag(record: ProcessRecord) {
   return null
 }
 
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible' && chartInitialized) {
+    fetchMetricHistory()
+  }
+}
+
 onMounted(async () => {
   await fetchHostDetail()
   fetchMetric()
@@ -366,12 +463,9 @@ onMounted(async () => {
   await nextTick()
   initChart()
   window.addEventListener('resize', handleResize)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   refreshTimer = setInterval(() => {
     fetchMetric()
-    fetchMetricHistory()
-    if (activeTab.value === 'process') {
-      fetchProcesses()
-    }
   }, 10000)
 })
 
@@ -380,11 +474,13 @@ onBeforeUnmount(() => {
     clearInterval(refreshTimer)
     refreshTimer = null
   }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('resize', handleResize)
   if (chartInstance) {
     chartInstance.dispose()
     chartInstance = null
   }
+  chartInitialized = false
 })
 </script>
 
@@ -459,14 +555,11 @@ onBeforeUnmount(() => {
                   <div class="gauge-item">
                     <a-progress
                       type="dashboard"
-                      :percent="metric?.cpuUsage ?? 0"
+                      :percent="cpuPercent"
                       :stroke-color="getUsageColor(metric?.cpuUsage ?? null)"
                       :width="120"
-                    >
-                      <template #format="{ percent }">
-                        <span class="gauge-value">{{ percent }}%</span>
-                      </template>
-                    </a-progress>
+                      :format="formatPercent"
+                    />
                     <div class="gauge-label">CPU 使用率</div>
                   </div>
                 </a-col>
@@ -474,14 +567,11 @@ onBeforeUnmount(() => {
                   <div class="gauge-item">
                     <a-progress
                       type="dashboard"
-                      :percent="metric?.memoryUsage ?? 0"
+                      :percent="memPercent"
                       :stroke-color="getUsageColor(metric?.memoryUsage ?? null)"
                       :width="120"
-                    >
-                      <template #format="{ percent }">
-                        <span class="gauge-value">{{ percent }}%</span>
-                      </template>
-                    </a-progress>
+                      :format="formatPercent"
+                    />
                     <div class="gauge-label">内存使用率</div>
                     <div class="gauge-detail">
                       {{ formatBytes(metric?.memoryUsed ?? null) }} / {{ formatBytes(hostInfo.memoryTotal) }}
@@ -492,14 +582,11 @@ onBeforeUnmount(() => {
                   <div class="gauge-item">
                     <a-progress
                       type="dashboard"
-                      :percent="metric?.diskUsage ?? 0"
+                      :percent="diskPercent"
                       :stroke-color="getUsageColor(metric?.diskUsage ?? null)"
                       :width="120"
-                    >
-                      <template #format="{ percent }">
-                        <span class="gauge-value">{{ percent }}%</span>
-                      </template>
-                    </a-progress>
+                      :format="formatPercent"
+                    />
                     <div class="gauge-label">硬盘使用率</div>
                     <div class="gauge-detail">
                       {{ formatBytes(metric?.diskUsed ?? null) }} / {{ formatBytes(hostInfo.diskTotal) }}
@@ -530,34 +617,58 @@ onBeforeUnmount(() => {
 
       <a-tab-pane key="process" tab="进程监控">
         <div class="process-toolbar">
-          <span class="process-count">共 {{ processList.length }} 个进程</span>
-          <a-button size="small" @click="fetchProcesses" :loading="processLoading">
-            <ReloadOutlined />
-            刷新
-          </a-button>
+          <a-input-search
+            v-model:value="processSearch"
+            placeholder="搜索进程名或 PID"
+            style="width: 240px"
+            allow-clear
+          />
+          <a-space>
+            <span class="process-count">共 {{ filteredProcessList.length }} 个进程</span>
+            <a-button size="small" @click="fetchProcesses" :loading="processLoading">
+              <ReloadOutlined />
+              刷新
+            </a-button>
+          </a-space>
         </div>
         <a-table
           :columns="processColumns"
-          :data-source="processList"
+          :data-source="filteredProcessList"
           :loading="processLoading"
           :pagination="{ pageSize: 20, showTotal: (t: number) => `共 ${t} 个进程` }"
           row-key="pid"
           size="small"
-          :scroll="{ x: 1000 }"
+          :scroll="{ x: 900 }"
+          :expandable="{ expandedRowRender: undefined }"
         >
+          <template #expandedRowRender="{ record }">
+            <div class="process-detail">
+              <a-descriptions :column="2" size="small">
+                <a-descriptions-item label="命令行" :span="2">
+                  <code class="cmd-text">{{ record.commandLine || '-' }}</code>
+                </a-descriptions-item>
+                <a-descriptions-item label="启动时间">
+                  {{ record.startTime ? record.startTime.replace('T', ' ').substring(0, 19) : '-' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="PID">
+                  {{ record.pid }}
+                </a-descriptions-item>
+              </a-descriptions>
+            </div>
+          </template>
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'cpuPercent'">
-              <span :style="{ color: record.cpuPercent > 80 ? '#ff4d4f' : record.cpuPercent > 50 ? '#faad14' : '' }">
-                {{ record.cpuPercent.toFixed(1) }}%
+            <template v-if="column.key === 'cpuUsage'">
+              <span :style="{ color: record.cpuUsage > 80 ? '#ff4d4f' : record.cpuUsage > 50 ? '#faad14' : '' }">
+                {{ record.cpuUsage.toFixed(1) }}%
               </span>
             </template>
-            <template v-if="column.key === 'memoryPercent'">
-              <span :style="{ color: record.memoryPercent > 80 ? '#ff4d4f' : record.memoryPercent > 50 ? '#faad14' : '' }">
-                {{ record.memoryPercent.toFixed(1) }}%
+            <template v-if="column.key === 'memoryUsage'">
+              <span :style="{ color: record.memoryUsage > 80 ? '#ff4d4f' : record.memoryUsage > 50 ? '#faad14' : '' }">
+                {{ record.memoryUsage.toFixed(1) }}%
               </span>
             </template>
-            <template v-if="column.key === 'memoryMb'">
-              {{ record.memoryMb.toFixed(1) }} MB
+            <template v-if="column.key === 'memoryUsed'">
+              {{ (record.memoryUsed / 1024 / 1024).toFixed(1) }} MB
             </template>
             <template v-if="column.key === 'rule'">
               <template v-if="getProcessRuleTag(record)">
@@ -706,6 +817,22 @@ onBeforeUnmount(() => {
 .process-count {
   color: #8c8c8c;
   font-size: 14px;
+}
+
+.process-detail {
+  padding: 8px 16px;
+}
+
+.cmd-text {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #595959;
+  word-break: break-all;
+  background: #f5f5f5;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  max-width: 100%;
 }
 
 .loading-wrapper {

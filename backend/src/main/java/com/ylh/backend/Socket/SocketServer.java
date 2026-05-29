@@ -2,6 +2,7 @@ package com.ylh.backend.Socket;
 
 import com.ylh.backend.Mapper.HostMetricMapper;
 import com.ylh.backend.Service.HostInfoService;
+import com.ylh.backend.Service.HostProcessService;
 import com.ylh.backend.Service.UserService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -33,6 +34,7 @@ public class SocketServer {
     private final UserService userService;
     private final HostInfoService hostInfoService;
     private final HostMetricMapper hostMetricMapper;
+    private final HostProcessService hostProcessService;
     private final ScreenStreamManager screenStreamManager;
 
     private ServerSocket serverSocket;
@@ -43,10 +45,12 @@ public class SocketServer {
     private final ConcurrentHashMap<Long, Long> userConnectionMap = new ConcurrentHashMap<>();
 
     public SocketServer(UserService userService, HostInfoService hostInfoService,
-                        HostMetricMapper hostMetricMapper, ScreenStreamManager screenStreamManager) {
+                        HostMetricMapper hostMetricMapper, HostProcessService hostProcessService,
+                        ScreenStreamManager screenStreamManager) {
         this.userService = userService;
         this.hostInfoService = hostInfoService;
         this.hostMetricMapper = hostMetricMapper;
+        this.hostProcessService = hostProcessService;
         this.screenStreamManager = screenStreamManager;
     }
 
@@ -85,7 +89,8 @@ public class SocketServer {
                     clientSocket.setSoTimeout(5000);
                     long connectionId = connectionIdGenerator.incrementAndGet();
                     ClientHandler handler = new ClientHandler(
-                            clientSocket, connectionId, userService, hostInfoService, hostMetricMapper, this
+                            clientSocket, connectionId, userService, hostInfoService,
+                            hostMetricMapper, hostProcessService, this
                     );
                     clients.put(connectionId, handler);
                     log.info("New connection #{} from {}, total clients: {}",
@@ -134,6 +139,14 @@ public class SocketServer {
         if (userId == null) return;
         userConnectionMap.put(userId, connectionId);
         log.info("User {} bound to connection #{}", userId, connectionId);
+    }
+
+    public void notifyClientConnected(Long userId) {
+        if (userId == null) return;
+        if (screenStreamManager.hasSubscribers(userId)) {
+            sendCommandToUser(userId, MessageConstants.CMD_SCREEN_START);
+            log.info("User {} has active screen subscribers, sent SCREEN_START", userId);
+        }
     }
 
     public void kickExistingConnection(Long userId, Long newConnectionId) {

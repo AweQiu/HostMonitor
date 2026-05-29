@@ -3,9 +3,11 @@ package com.ylh.backend.Socket;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ylh.backend.Entity.HostInfo;
 import com.ylh.backend.Entity.HostMetric;
+import com.ylh.backend.Entity.HostProcess;
 import com.ylh.backend.Entity.User;
 import com.ylh.backend.Mapper.HostMetricMapper;
 import com.ylh.backend.Service.HostInfoService;
+import com.ylh.backend.Service.HostProcessService;
 import com.ylh.backend.Service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,12 +19,16 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ClientHandler implements Runnable {
 
     private static final Logger log = LoggerFactory.getLogger(ClientHandler.class);
     private static final int BUFFER_SIZE = 8192;
+    private static final int MAX_MESSAGE_SIZE = 10 * 1024 * 1024;
     private static final long AUTH_TIMEOUT_MS = 30_000;
 
     private enum State {
@@ -34,6 +40,7 @@ public class ClientHandler implements Runnable {
     private final UserService userService;
     private final HostInfoService hostInfoService;
     private final HostMetricMapper hostMetricMapper;
+    private final HostProcessService hostProcessService;
     private final SocketServer socketServer;
 
     private State state = State.UNAUTHENTICATED;
@@ -45,14 +52,19 @@ public class ClientHandler implements Runnable {
     private final long connectTime = System.currentTimeMillis();
     private volatile OutputStream clientOutputStream = null;
 
+    private final Map<Integer, HostProcess> processSnapshot = new HashMap<>();
+    private int expectedProcessSeq = 1;
+
     public ClientHandler(Socket clientSocket, long connectionId,
                          UserService userService, HostInfoService hostInfoService,
-                         HostMetricMapper hostMetricMapper, SocketServer socketServer) {
+                         HostMetricMapper hostMetricMapper, HostProcessService hostProcessService,
+                         SocketServer socketServer) {
         this.clientSocket = clientSocket;
         this.connectionId = connectionId;
         this.userService = userService;
         this.hostInfoService = hostInfoService;
         this.hostMetricMapper = hostMetricMapper;
+        this.hostProcessService = hostProcessService;
         this.socketServer = socketServer;
     }
 
@@ -110,7 +122,8 @@ public class ClientHandler implements Runnable {
             String data = messageBuffer.toString();
             int nlIdx = data.indexOf('\n');
             if (nlIdx == -1) {
-                if (data.length() > BUFFER_SIZE) {
+                if (data.length() > MAX_MESSAGE_SIZE) {
+                    log.warn("[#{}] Message buffer exceeded max size ({}), clearing", connectionId, MAX_MESSAGE_SIZE);
                     messageBuffer.setLength(0);
                 }
                 return;
@@ -191,6 +204,8 @@ public class ClientHandler implements Runnable {
 
         log.info("[#{}] Authenticated as user {} ({})", connectionId, authenticatedUserId, authenticatedUsername);
         sendMessage(outputStream, SocketMessage.ok("Authenticated"));
+
+        socketServer.notifyClientConnected(authenticatedUserId);
     }
 
     private void handleAuthenticatedMessage(SocketMessage msg, OutputStream outputStream) throws IOException {
@@ -202,6 +217,16 @@ public class ClientHandler implements Runnable {
             case MessageConstants.TYPE_HOST_METRIC:
                 HostMetric metric = MessageParser.parseHostMetric(msg.getBody());
                 onHostMetricReceived(metric);
+                break;
+            case MessageConstants.TYPE_PROCESS_LIST:
+                List<HostProcess> processes = MessageParser.parseProcessList(msg.getBody());
+                onProcessListReceived(processes);
+                break;
+            case MessageConstants.TYPE_PROCESS_LIST_FULL:
+                onProcessListFullReceived(msg, outputStream);
+                break;
+            case MessageConstants.TYPE_PROCESS_LIST_DELTA:
+                onProcessListDeltaReceived(msg, outputStream);
                 break;
             default:
                 log.warn("[#{}] Unknown message type: {}", connectionId, msg.getType());
@@ -248,6 +273,106 @@ public class ClientHandler implements Runnable {
         }
         hostMetricMapper.insert(metric);
         log.debug("[#{}] Saved HostMetric: hostId={}, cpu={}%", connectionId, metric.getHostId(), metric.getCpuUsage());
+    }
+
+    private void onProcessListReceived(List<HostProcess> processes) {
+        if (registeredHostId == null) {
+            log.warn("[#{}] No registered host, discarding process list", connectionId);
+            return;
+        }
+        hostProcessService.batchInsert(registeredHostId, processes);
+        log.debug("[#{}] Saved ProcessList: hostId={}, count={}", connectionId, registeredHostId, processes.size());
+    }
+
+    private void onProcessListFullReceived(SocketMessage msg, OutputStream outputStream) throws IOException {
+        if (registeredHostId == null) {
+            log.warn("[#{}] No registered host, discarding full process list", connectionId);
+            return;
+        }
+
+        List<HostProcess> processes = MessageParser.parseProcessList(msg.getBody());
+
+        processSnapshot.clear();
+        LocalDateTime now = LocalDateTime.now();
+        for (HostProcess hp : processes) {
+            hp.setHostId(registeredHostId);
+            hp.setCollectTime(now);
+            processSnapshot.put(hp.getPid(), hp);
+        }
+        expectedProcessSeq = 2;
+
+        hostProcessService.batchInsert(registeredHostId, processes);
+        log.info("[#{}] Saved full ProcessList: hostId={}, count={}", connectionId, registeredHostId, processes.size());
+    }
+
+    private void onProcessListDeltaReceived(SocketMessage msg, OutputStream outputStream) throws IOException {
+        if (registeredHostId == null) {
+            log.warn("[#{}] No registered host, discarding delta process list", connectionId);
+            return;
+        }
+
+        MessageParser.ProcessListDeltaDto delta = MessageParser.parseProcessListDelta(msg.getBody());
+
+        if (delta.seq == null || delta.seq != expectedProcessSeq) {
+            log.warn("[#{}] Process delta seq mismatch: expected={}, got={}, requesting resync",
+                    connectionId, expectedProcessSeq, delta.seq);
+            processSnapshot.clear();
+            expectedProcessSeq = 1;
+            sendCommand(MessageConstants.CMD_PROCESS_RESYNC);
+            return;
+        }
+
+        if (delta.removed != null) {
+            for (Integer pid : delta.removed) {
+                processSnapshot.remove(pid);
+            }
+        }
+
+        if (delta.added != null) {
+            for (var dto : delta.added) {
+                HostProcess hp = dtoToHostProcess(dto);
+                processSnapshot.put(hp.getPid(), hp);
+            }
+        }
+
+        if (delta.changed != null) {
+            for (var dto : delta.changed) {
+                HostProcess hp = dtoToHostProcess(dto);
+                processSnapshot.put(hp.getPid(), hp);
+            }
+        }
+
+        expectedProcessSeq++;
+
+        LocalDateTime now = LocalDateTime.now();
+        List<HostProcess> fullList = new java.util.ArrayList<>(processSnapshot.values());
+        for (HostProcess hp : fullList) {
+            hp.setHostId(registeredHostId);
+            hp.setCollectTime(now);
+        }
+        hostProcessService.batchInsert(registeredHostId, fullList);
+
+        log.debug("[#{}] Applied process delta: seq={}, added={}, removed={}, changed={}, total={}",
+                connectionId, delta.seq,
+                delta.added != null ? delta.added.size() : 0,
+                delta.removed != null ? delta.removed.size() : 0,
+                delta.changed != null ? delta.changed.size() : 0,
+                fullList.size());
+    }
+
+    private HostProcess dtoToHostProcess(MessageParser.ProcessDto dto) {
+        HostProcess hp = new HostProcess();
+        hp.setPid(dto.pid != null ? dto.pid : 0);
+        hp.setPpid(dto.ppid);
+        hp.setName(dto.name);
+        hp.setUser(dto.user);
+        hp.setCpuUsage(dto.cpuUsage != null ? java.math.BigDecimal.valueOf(dto.cpuUsage) : java.math.BigDecimal.ZERO);
+        hp.setMemoryUsage(dto.memoryUsage != null ? java.math.BigDecimal.valueOf(dto.memoryUsage) : java.math.BigDecimal.ZERO);
+        hp.setMemoryUsed(dto.memoryUsed);
+        hp.setStatus(dto.status);
+        hp.setStartTime(dto.startTime);
+        hp.setCommandLine(dto.commandLine);
+        return hp;
     }
 
     private void sendMessage(OutputStream outputStream, SocketMessage msg) throws IOException {
