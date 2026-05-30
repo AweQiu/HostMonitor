@@ -8,7 +8,7 @@
 
 ### 后端技术栈
 
-Spring Boot 3.4.7 / Spring Security 6.4.x / MyBatis-Plus 3.5.9 / MySQL 8.0+ / JWT (jjwt 0.12.6) / WebSocket / Lombok
+Spring Boot 3.4.7 / Spring Security 6.4.x / MyBatis-Plus 3.5.9 / MySQL 8.0+ / JWT (jjwt 0.12.6) / WebSocket
 
 ### 前端技术栈
 
@@ -16,7 +16,7 @@ Vue 3.5.x / TypeScript 6.0.x / Ant Design Vue 4.2.x / Axios / ECharts 6.1.x
 
 ### 客户端技术栈
 
-Java 21 / OSHI 6.6.5 /  Java AWT Robot / UDP/TCP Socket / Lombok
+Java 21 / OSHI 6.6.5 /  Java AWT Robot / UDP/TCP Socket
 
 ***
 
