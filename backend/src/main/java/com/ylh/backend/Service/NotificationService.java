@@ -202,8 +202,12 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
         vo.setIsRead(isRead);
         vo.setSendTime(notif.getSendTime());
 
-        User sender = userMapper.selectById(notif.getSenderId());
-        vo.setSenderName(sender != null ? sender.getUsername() : "未知");
+        if (notif.getSenderId() != null) {
+            User sender = userMapper.selectById(notif.getSenderId());
+            vo.setSenderName(sender != null ? sender.getUsername() : "未知");
+        } else {
+            vo.setSenderName("系统");
+        }
 
         switch (notif.getSendType()) {
             case 1:
@@ -221,5 +225,37 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
         }
 
         return vo;
+    }
+
+    @Transactional
+    public Long sendSystemNotification(String title, String content, List<Long> targetUserIds) {
+        if (targetUserIds == null || targetUserIds.isEmpty()) return null;
+
+        Notification notification = new Notification();
+        notification.setTitle(title);
+        notification.setContent(content);
+        notification.setSenderId(null);
+        notification.setSendType(3);
+        notification.setStatus(1);
+        notification.setSendTime(LocalDateTime.now());
+
+        try {
+            notification.setTargetUserIds(objectMapper.writeValueAsString(targetUserIds));
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize target user ids", e);
+        }
+
+        save(notification);
+
+        for (Long userId : targetUserIds) {
+            UserNotification un = new UserNotification();
+            un.setUserId(userId);
+            un.setNotificationId(notification.getId());
+            un.setIsRead(0);
+            userNotificationMapper.insert(un);
+        }
+
+        log.info("系统自动发送通知 [{}]，目标用户数: {}", title, targetUserIds.size());
+        return notification.getId();
     }
 }

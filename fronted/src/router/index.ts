@@ -56,6 +56,12 @@ const router = createRouter({
           meta: { requiresAuth: true, title: '进程管理' }
         },
         {
+          path: 'alerts',
+          name: 'alerts',
+          component: () => import('../views/AlertsView.vue'),
+          meta: { requiresAuth: true, title: '告警中心' }
+        },
+        {
           path: 'users',
           name: 'users',
           component: () => import('../views/UsersView.vue'),

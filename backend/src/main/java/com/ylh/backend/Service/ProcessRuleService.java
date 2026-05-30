@@ -41,4 +41,16 @@ public class ProcessRuleService extends ServiceImpl<ProcessRuleMapper, ProcessRu
                 .eq(ProcessRule::getRuleType, "BLACKLIST")
                 .eq(ProcessRule::getProcessName, processName)) > 0;
     }
+
+    public List<ProcessRule> getBlacklistByGroupId(Long groupId) {
+        return list(new LambdaQueryWrapper<ProcessRule>()
+                .eq(ProcessRule::getGroupId, groupId)
+                .eq(ProcessRule::getRuleType, "BLACKLIST"));
+    }
+
+    public List<ProcessRule> getWhitelistByGroupId(Long groupId) {
+        return list(new LambdaQueryWrapper<ProcessRule>()
+                .eq(ProcessRule::getGroupId, groupId)
+                .eq(ProcessRule::getRuleType, "WHITELIST"));
+    }
 }

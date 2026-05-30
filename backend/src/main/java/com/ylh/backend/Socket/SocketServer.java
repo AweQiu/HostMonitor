@@ -3,6 +3,7 @@ package com.ylh.backend.Socket;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ylh.backend.Entity.HostInfo;
 import com.ylh.backend.Mapper.HostMetricMapper;
+import com.ylh.backend.Service.AlertService;
 import com.ylh.backend.Service.HostInfoService;
 import com.ylh.backend.Service.HostProcessService;
 import com.ylh.backend.Service.UserService;
@@ -38,6 +39,7 @@ public class SocketServer {
     private final HostInfoService hostInfoService;
     private final HostMetricMapper hostMetricMapper;
     private final HostProcessService hostProcessService;
+    private final AlertService alertService;
     private final ScreenStreamManager screenStreamManager;
 
     private ServerSocket serverSocket;
@@ -49,11 +51,12 @@ public class SocketServer {
 
     public SocketServer(UserService userService, HostInfoService hostInfoService,
                         HostMetricMapper hostMetricMapper, HostProcessService hostProcessService,
-                        ScreenStreamManager screenStreamManager) {
+                        AlertService alertService, ScreenStreamManager screenStreamManager) {
         this.userService = userService;
         this.hostInfoService = hostInfoService;
         this.hostMetricMapper = hostMetricMapper;
         this.hostProcessService = hostProcessService;
+        this.alertService = alertService;
         this.screenStreamManager = screenStreamManager;
     }
 
@@ -95,7 +98,7 @@ public class SocketServer {
                     long connectionId = connectionIdGenerator.incrementAndGet();
                     ClientHandler handler = new ClientHandler(
                             clientSocket, connectionId, userService, hostInfoService,
-                            hostMetricMapper, hostProcessService, this
+                            hostMetricMapper, hostProcessService, alertService, this
                     );
                     clients.put(connectionId, handler);
                     log.info("New connection #{} from {}, total clients: {}",

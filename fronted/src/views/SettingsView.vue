@@ -236,7 +236,27 @@ onMounted(() => {
       </a-tab-pane>
 
       <a-tab-pane key="alert" tab="告警设置">
-        <a-empty description="暂无设置项" style="margin-top: 60px" />
+        <div class="settings-section">
+          <a-form layout="vertical" class="settings-form">
+            <a-form-item label="启用进程告警">
+              <a-switch v-model:checked="settings.processAlertEnabled" />
+              <div class="form-hint">检测到黑名单进程运行或白名单进程未运行时自动发送告警通知</div>
+            </a-form-item>
+
+            <a-form-item label="告警去重间隔">
+              <a-input-number v-model:value="settings.alertDedupMinutes" :min="5" :max="1440" :step="5" style="max-width: 200px" />
+              <span class="form-unit">分钟</span>
+              <div class="form-hint">同一主机同一进程的同一类型告警，在间隔时间内不重复发送</div>
+            </a-form-item>
+
+            <a-form-item>
+              <a-space>
+                <a-button type="primary" @click="handleSave">保存设置</a-button>
+                <a-button @click="handleReset">恢复默认</a-button>
+              </a-space>
+            </a-form-item>
+          </a-form>
+        </div>
       </a-tab-pane>
     </a-tabs>
   </div>

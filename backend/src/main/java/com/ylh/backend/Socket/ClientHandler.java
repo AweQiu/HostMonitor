@@ -6,6 +6,7 @@ import com.ylh.backend.Entity.HostMetric;
 import com.ylh.backend.Entity.HostProcess;
 import com.ylh.backend.Entity.User;
 import com.ylh.backend.Mapper.HostMetricMapper;
+import com.ylh.backend.Service.AlertService;
 import com.ylh.backend.Service.HostInfoService;
 import com.ylh.backend.Service.HostProcessService;
 import com.ylh.backend.Service.UserService;
@@ -41,6 +42,7 @@ public class ClientHandler implements Runnable {
     private final HostInfoService hostInfoService;
     private final HostMetricMapper hostMetricMapper;
     private final HostProcessService hostProcessService;
+    private final AlertService alertService;
     private final SocketServer socketServer;
 
     private State state = State.UNAUTHENTICATED;
@@ -59,13 +61,14 @@ public class ClientHandler implements Runnable {
     public ClientHandler(Socket clientSocket, long connectionId,
                          UserService userService, HostInfoService hostInfoService,
                          HostMetricMapper hostMetricMapper, HostProcessService hostProcessService,
-                         SocketServer socketServer) {
+                         AlertService alertService, SocketServer socketServer) {
         this.clientSocket = clientSocket;
         this.connectionId = connectionId;
         this.userService = userService;
         this.hostInfoService = hostInfoService;
         this.hostMetricMapper = hostMetricMapper;
         this.hostProcessService = hostProcessService;
+        this.alertService = alertService;
         this.socketServer = socketServer;
     }
 
@@ -316,6 +319,12 @@ public class ClientHandler implements Runnable {
 
         hostProcessService.batchInsert(registeredHostId, processes);
         log.info("[#{}] Saved full ProcessList: hostId={}, count={}", connectionId, registeredHostId, processes.size());
+
+        try {
+            alertService.checkProcessAlerts(registeredHostId, processSnapshot);
+        } catch (Exception e) {
+            log.error("[#{}] Error checking process alerts: {}", connectionId, e.getMessage());
+        }
     }
 
     private void onProcessListDeltaReceived(SocketMessage msg, OutputStream outputStream) throws IOException {
@@ -371,6 +380,12 @@ public class ClientHandler implements Runnable {
                 delta.removed != null ? delta.removed.size() : 0,
                 delta.changed != null ? delta.changed.size() : 0,
                 fullList.size());
+
+        try {
+            alertService.checkProcessAlerts(registeredHostId, processSnapshot);
+        } catch (Exception e) {
+            log.error("[#{}] Error checking process alerts: {}", connectionId, e.getMessage());
+        }
     }
 
     private HostProcess dtoToHostProcess(MessageParser.ProcessDto dto) {

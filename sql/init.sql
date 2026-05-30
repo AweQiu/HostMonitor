@@ -167,12 +167,29 @@ CREATE TABLE `process_rule` (
   CONSTRAINT `fk_rule_group` FOREIGN KEY (`group_id`) REFERENCES `group` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 告警记录表
+CREATE TABLE `alert_record` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `host_id` BIGINT NOT NULL,
+  `alert_type` VARCHAR(30) NOT NULL COMMENT 'BLACKLIST_RUNNING或WHITELIST_MISSING',
+  `process_name` VARCHAR(255) NOT NULL,
+  `rule_id` BIGINT DEFAULT NULL,
+  `notification_id` BIGINT DEFAULT NULL,
+  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '0-未处理 1-已处理',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_host_id` (`host_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_create_time` (`create_time`),
+  KEY `idx_host_type_process` (`host_id`, `alert_type`, `process_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 通知表
 CREATE TABLE `notification` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `title` VARCHAR(100) NOT NULL,
   `content` TEXT NOT NULL,
-  `sender_id` BIGINT NOT NULL,
+  `sender_id` BIGINT DEFAULT NULL COMMENT 'NULL表示系统自动发送',
   `send_type` TINYINT NOT NULL COMMENT '1-全体 2-分组 3-指定用户',
   `target_group_id` BIGINT DEFAULT NULL,
   `target_user_ids` TEXT DEFAULT NULL COMMENT 'JSON数组，如[1,2,3]',
@@ -181,8 +198,7 @@ CREATE TABLE `notification` (
   `send_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_sender_id` (`sender_id`),
-  KEY `idx_send_time` (`send_time`),
-  CONSTRAINT `fk_notif_sender` FOREIGN KEY (`sender_id`) REFERENCES `user` (`id`)
+  KEY `idx_send_time` (`send_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 用户通知关系表

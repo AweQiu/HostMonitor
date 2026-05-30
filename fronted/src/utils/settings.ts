@@ -18,6 +18,8 @@ export interface AppSettings {
   smtpPort: number
   smtpSender: string
   smtpAuthCode: string
+  processAlertEnabled: boolean
+  alertDedupMinutes: number
 }
 
 const STORAGE_KEY = 'host_monitor_settings'
@@ -41,7 +43,9 @@ const defaultSettings: AppSettings = {
   smtpServer: '',
   smtpPort: 465,
   smtpSender: '',
-  smtpAuthCode: ''
+  smtpAuthCode: '',
+  processAlertEnabled: true,
+  alertDedupMinutes: 30
 }
 
 export function getSettings(): AppSettings {

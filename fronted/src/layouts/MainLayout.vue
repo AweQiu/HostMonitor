@@ -17,7 +17,8 @@ import {
   CloseOutlined,
   GroupOutlined,
   BellOutlined,
-  ToolOutlined
+  ToolOutlined,
+  AlertOutlined
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -33,6 +34,7 @@ let unreadTimer: ReturnType<typeof setInterval> | null = null
 const allMenuItems = [
   { key: 'dashboard', icon: () => h(DashboardOutlined), label: '仪表盘', path: '/dashboard', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
   { key: 'hosts', icon: () => h(DesktopOutlined), label: '主机管理', path: '/hosts', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
+  { key: 'alerts', icon: () => h(AlertOutlined), label: '告警中心', path: '/alerts', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
   { key: 'process', icon: () => h(ToolOutlined), label: '进程管理', path: '/process', roles: ['SUPER_ADMIN', 'GROUP_ADMIN'] },
   { key: 'users', icon: () => h(TeamOutlined), label: '用户管理', path: '/users', roles: ['SUPER_ADMIN', 'GROUP_ADMIN'] },
   { key: 'groups', icon: () => h(GroupOutlined), label: '组织管理', path: '/groups', roles: ['SUPER_ADMIN'] },
@@ -48,6 +50,7 @@ const menuItems = computed(() => {
 const tabKeyMap: Record<string, string> = {
   '/dashboard': 'dashboard',
   '/hosts': 'hosts',
+  '/alerts': 'alerts',
   '/process': 'process',
   '/users': 'users',
   '/groups': 'groups',
@@ -59,6 +62,7 @@ const tabTitleMap: Record<string, string> = {
   dashboard: '仪表盘',
   hosts: '主机管理',
   hostDetail: '主机详情',
+  alerts: '告警中心',
   process: '进程管理',
   users: '用户管理',
   groups: '组织管理',
