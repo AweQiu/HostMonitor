@@ -43,16 +43,6 @@ public class GroupController {
         return Result.success(groupService.toVOList(groups));
     }
 
-    @GetMapping("/{id}")
-    public Result<GroupVO> getGroup(@PathVariable Long id) {
-        checkSuperAdminPermission();
-        Group group = groupService.getById(id);
-        if (group == null) {
-            return Result.error("分组不存在");
-        }
-        return Result.success(groupService.toVO(group));
-    }
-
     @PostMapping
     public Result<Void> createGroup(@RequestBody CreateGroupRequest request) {
         checkSuperAdminPermission();

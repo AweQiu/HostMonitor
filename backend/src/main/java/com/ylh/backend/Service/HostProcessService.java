@@ -37,26 +37,6 @@ public class HostProcessService extends ServiceImpl<HostProcessMapper, HostProce
         );
     }
 
-    public List<HostProcess> getProcessHistory(Long hostId, String range) {
-        LocalDateTime since = parseRange(range);
-        return list(
-                new LambdaQueryWrapper<HostProcess>()
-                        .eq(HostProcess::getHostId, hostId)
-                        .ge(HostProcess::getCollectTime, since)
-                        .orderByAsc(HostProcess::getCollectTime)
-        );
-    }
-
-    private LocalDateTime parseRange(String range) {
-        LocalDateTime now = LocalDateTime.now();
-        if (range == null) return now.minusHours(1);
-        return switch (range) {
-            case "6h" -> now.minusHours(6);
-            case "24h" -> now.minusHours(24);
-            default -> now.minusHours(1);
-        };
-    }
-
     public void batchInsert(Long hostId, List<HostProcess> processes) {
         if (processes == null || processes.isEmpty()) {
             return;

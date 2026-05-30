@@ -75,54 +75,6 @@ public class HostProcessController {
         return Result.success(voList);
     }
 
-    @GetMapping("/{id}/processes/history")
-    public Result<List<ProcessVO>> getProcessHistory(
-            @PathVariable Long id,
-            @RequestParam(defaultValue = "1h") String range) {
-        if (!checkHostAccess(id)) {
-            return Result.error(403, "无权查看该主机");
-        }
-        List<HostProcess> history = hostProcessService.getProcessHistory(id, range);
-
-        Long groupId = null;
-        HostInfo host = hostInfoService.getById(id);
-        if (host != null && host.getUserId() != null) {
-            User hostUser = userService.getById(host.getUserId());
-            if (hostUser != null) {
-                groupId = hostUser.getGroupId();
-            }
-        }
-
-        final Long finalGroupId = groupId;
-        List<ProcessVO> voList = history.stream().map(p -> {
-            ProcessVO vo = new ProcessVO();
-            vo.setId(p.getId());
-            vo.setHostId(p.getHostId());
-            vo.setPid(p.getPid());
-            vo.setPpid(p.getPpid());
-            vo.setName(p.getName());
-            vo.setUser(p.getUser());
-            vo.setCpuUsage(p.getCpuUsage());
-            vo.setMemoryUsage(p.getMemoryUsage());
-            vo.setMemoryUsed(p.getMemoryUsed());
-            vo.setStatus(p.getStatus());
-            vo.setStartTime(p.getStartTime());
-            vo.setCommandLine(p.getCommandLine());
-            vo.setCollectTime(p.getCollectTime());
-
-            if (finalGroupId != null && p.getName() != null) {
-                vo.setIsWhitelisted(processRuleService.isWhitelisted(finalGroupId, p.getName()));
-                vo.setIsBlacklisted(processRuleService.isBlacklisted(finalGroupId, p.getName()));
-            } else {
-                vo.setIsWhitelisted(false);
-                vo.setIsBlacklisted(false);
-            }
-            return vo;
-        }).collect(Collectors.toList());
-
-        return Result.success(voList);
-    }
-
     private boolean checkHostAccess(Long hostId) {
         Long currentUserId = getCurrentUserId();
         List<String> roles = userService.getUserRoleKeys(currentUserId);

@@ -11,8 +11,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
-
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -31,23 +29,6 @@ public class AuthController {
     public Result<Void> register(@RequestBody RegisterRequest request) {
         authService.register(request);
         return Result.success("注册成功", null);
-    }
-
-    @GetMapping("/agent-key")
-    public Result<Map<String, String>> getAgentKey() {
-        Long userId = getCurrentUserId();
-        com.ylh.backend.Entity.User user = userService.getById(userId);
-        if (user == null) {
-            return Result.error("用户不存在");
-        }
-        return Result.success(Map.of("agentKey", user.getAgentKey()));
-    }
-
-    @PostMapping("/agent-key/reset")
-    public Result<Map<String, String>> resetAgentKey() {
-        Long userId = getCurrentUserId();
-        String newKey = userService.resetAgentKey(userId);
-        return Result.success("密钥已重置", Map.of("agentKey", newKey));
     }
 
     private Long getCurrentUserId() {
