@@ -14,6 +14,7 @@ import {
 import * as echarts from 'echarts'
 import request from '@/utils/request'
 import { useUserStore } from '@/stores/user'
+import { getSetting } from '@/utils/settings'
 
 const route = useRoute()
 const router = useRouter()
@@ -91,7 +92,7 @@ const processRules = ref<ProcessRule[]>([])
 const loading = ref(false)
 const processLoading = ref(false)
 const activeTab = ref('overview')
-const metricRange = ref('1h')
+const metricRange = ref(getSetting('defaultMetricRange'))
 const processSearch = ref('')
 
 const filteredProcessList = computed(() => {
@@ -113,17 +114,22 @@ let lastMetricTime: string | null = null
 let chartInitialized = false
 
 const rangeOptions = [
+  { label: '5 分钟', value: '5m' },
+  { label: '10 分钟', value: '10m' },
+  { label: '30 分钟', value: '30m' },
   { label: '1 小时', value: '1h' },
-  { label: '6 小时', value: '6h' },
-  { label: '24 小时', value: '24h' },
-  { label: '7 天', value: '7d' }
+  { label: '自定义', value: 'custom' }
 ]
 
+const customRangeVisible = ref(false)
+const customRangeValue = ref<number>(30)
+const customRangeUnit = ref<'minutes' | 'hours'>('minutes')
+
 const rangeMs: Record<string, number> = {
-  '1h': 3600_000,
-  '6h': 6 * 3600_000,
-  '24h': 24 * 3600_000,
-  '7d': 7 * 24 * 3600_000
+  '5m': 5 * 60_000,
+  '10m': 10 * 60_000,
+  '30m': 30 * 60_000,
+  '1h': 3600_000
 }
 
 function formatBytes(bytes: number | null): string {
@@ -170,10 +176,32 @@ async function fetchMetric() {
   }
 }
 
+function getEffectiveRange(): string {
+  if (metricRange.value === 'custom') {
+    if (customRangeUnit.value === 'hours') {
+      return customRangeValue.value + 'h'
+    }
+    return customRangeValue.value + 'm'
+  }
+  return metricRange.value
+}
+
+function getEffectiveRangeMs(): number {
+  const range = getEffectiveRange()
+  if (rangeMs[range]) return rangeMs[range]
+  if (range.endsWith('m')) {
+    return parseInt(range) * 60_000
+  }
+  if (range.endsWith('h')) {
+    return parseInt(range) * 3600_000
+  }
+  return 5 * 60_000
+}
+
 async function fetchMetricHistory() {
   try {
     const data = await request.get(`/hosts/${hostId.value}/metrics/history`, {
-      params: { range: metricRange.value }
+      params: { range: getEffectiveRange() }
     })
     metricQueue.value = data.data || []
     if (metricQueue.value.length > 0) {
@@ -209,8 +237,8 @@ function appendToQueue(m: MetricInfo) {
 }
 
 function trimQueue() {
-  const maxMs = rangeMs[metricRange.value] || rangeMs['1h']
-  const cutoff = Date.now() - (maxMs ?? rangeMs['1h'] ?? 3600_000)
+  const maxMs = getEffectiveRangeMs()
+  const cutoff = Date.now() - maxMs
   while (metricQueue.value.length > 0 && metricQueue.value[0]?.collectTime && new Date(metricQueue.value[0].collectTime).getTime() < cutoff) {
     metricQueue.value.shift()
   }
@@ -354,16 +382,26 @@ function handleResize() {
   chartInstance?.resize()
 }
 
-watch(metricRange, (newRange, oldRange) => {
-  const newMs = rangeMs[newRange] || rangeMs['1h']
-  const oldMs = rangeMs[oldRange] || rangeMs['1h']
-  if (newMs! > oldMs!) {
-    fetchMetricHistory()
+watch(metricRange, (newRange) => {
+  if (newRange === 'custom') {
+    customRangeVisible.value = true
   } else {
-    trimQueue()
-    renderChart()
+    customRangeVisible.value = false
+    fetchMetricHistory()
   }
 })
+
+function applyCustomRange() {
+  const totalMinutes = customRangeUnit.value === 'hours'
+    ? customRangeValue.value * 60
+    : customRangeValue.value
+  if (totalMinutes < 1 || totalMinutes > 2880) {
+    message.warning('自定义时间范围需在 1 分钟 ~ 48 小时之间')
+    return
+  }
+  customRangeVisible.value = false
+  fetchMetricHistory()
+}
 
 function handleRefresh() {
   fetchHostDetail()
@@ -456,6 +494,19 @@ function handleVisibilityChange() {
   }
 }
 
+function startRefreshTimer() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  const interval = getSetting('metricRefreshInterval')
+  if (interval > 0) {
+    refreshTimer = setInterval(() => {
+      fetchMetric()
+    }, interval * 1000)
+  }
+}
+
 onMounted(async () => {
   await fetchHostDetail()
   fetchMetric()
@@ -464,9 +515,8 @@ onMounted(async () => {
   initChart()
   window.addEventListener('resize', handleResize)
   document.addEventListener('visibilitychange', handleVisibilityChange)
-  refreshTimer = setInterval(() => {
-    fetchMetric()
-  }, 10000)
+  startRefreshTimer()
+  window.addEventListener('settings-changed', startRefreshTimer)
 })
 
 onBeforeUnmount(() => {
@@ -474,6 +524,7 @@ onBeforeUnmount(() => {
     clearInterval(refreshTimer)
     refreshTimer = null
   }
+  window.removeEventListener('settings-changed', startRefreshTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('resize', handleResize)
   if (chartInstance) {
@@ -526,14 +577,44 @@ onBeforeUnmount(() => {
           <a-col :span="24" :lg="14">
             <a-card title="性能趋势" :bordered="false" class="section-card">
               <template #extra>
-                <a-radio-group v-model:value="metricRange" size="small" button-style="solid">
-                  <a-radio-button v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">
-                    {{ opt.label }}
-                  </a-radio-button>
-                </a-radio-group>
+                <a-space>
+                  <a-radio-group v-model:value="metricRange" size="small" button-style="solid">
+                    <a-radio-button v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </a-radio-button>
+                  </a-radio-group>
+                  <span v-if="metricRange === 'custom'" class="custom-range-label">
+                    {{ customRangeValue }} {{ customRangeUnit === 'hours' ? '小时' : '分钟' }}
+                  </span>
+                </a-space>
               </template>
               <div ref="chartRef" class="metric-chart"></div>
             </a-card>
+
+            <a-modal
+              v-model:open="customRangeVisible"
+              title="自定义时间范围"
+              @ok="applyCustomRange"
+              :width="360"
+            >
+              <a-form layout="vertical" style="margin-top: 16px">
+                <a-form-item label="时间范围">
+                  <a-input-group compact>
+                    <a-input-number
+                      v-model:value="customRangeValue"
+                      :min="1"
+                      :max="customRangeUnit === 'hours' ? 48 : 2880"
+                      style="width: 120px"
+                    />
+                    <a-select v-model:value="customRangeUnit" style="width: 100px">
+                      <a-select-option value="minutes">分钟</a-select-option>
+                      <a-select-option value="hours">小时</a-select-option>
+                    </a-select>
+                  </a-input-group>
+                  <div class="form-hint">时间范围限制在 48 小时以内</div>
+                </a-form-item>
+              </a-form>
+            </a-modal>
           </a-col>
 
           <a-col :span="24" :lg="10">

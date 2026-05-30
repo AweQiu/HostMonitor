@@ -5,6 +5,7 @@ import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import request from '@/utils/request'
 import { useUserStore } from '@/stores/user'
+import { getSetting } from '@/utils/settings'
 
 interface HostRecord {
   id: number
@@ -66,11 +67,29 @@ async function fetchHosts() {
     const data = await request.get('/hosts', { params })
     hostData.value = data.data.records
     total.value = data.data.total
+    applySort()
   } catch {
     // error handled by interceptor
   } finally {
     loading.value = false
   }
+}
+
+function applySort() {
+  const sortBy = getSetting('hostListSortBy')
+  hostData.value.sort((a, b) => {
+    switch (sortBy) {
+      case 'hostname':
+        return (a.hostname || '').localeCompare(b.hostname || '')
+      case 'status':
+        return (b.status ?? 0) - (a.status ?? 0)
+      case 'cpuUsage':
+      case 'memoryUsage':
+        return 0
+      default:
+        return (b.status ?? 0) - (a.status ?? 0)
+    }
+  })
 }
 
 function handleSearch() {

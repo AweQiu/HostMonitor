@@ -1,5 +1,7 @@
 package com.ylh.backend.Socket;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.ylh.backend.Entity.HostInfo;
 import com.ylh.backend.Mapper.HostMetricMapper;
 import com.ylh.backend.Service.HostInfoService;
 import com.ylh.backend.Service.HostProcessService;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -56,6 +59,8 @@ public class SocketServer {
 
     @PostConstruct
     public void start() {
+        resetAllHostsOffline();
+
         screenStreamManager.setSubscriptionListener(new ScreenStreamManager.ScreenSubscriptionListener() {
             @Override
             public void onFirstSubscriber(Long userId) {
@@ -167,6 +172,35 @@ public class SocketServer {
         if (userId == null) return;
         userConnectionMap.remove(userId, connectionId);
         log.info("User {} connection #{} removed from mapping", userId, connectionId);
+
+        if (!userConnectionMap.containsKey(userId)) {
+            markHostOffline(userId);
+        }
+    }
+
+    public void markHostOffline(Long userId) {
+        if (userId == null) return;
+        HostInfo host = hostInfoService.getOne(
+                new LambdaQueryWrapper<HostInfo>().eq(HostInfo::getUserId, userId)
+        );
+        if (host != null && host.getStatus() == 1) {
+            host.setStatus(0);
+            hostInfoService.updateById(host);
+            log.info("Host id={} (userId={}) marked offline", host.getId(), userId);
+        }
+    }
+
+    private void resetAllHostsOffline() {
+        List<HostInfo> onlineHosts = hostInfoService.list(
+                new LambdaQueryWrapper<HostInfo>().eq(HostInfo::getStatus, 1)
+        );
+        for (HostInfo host : onlineHosts) {
+            host.setStatus(0);
+            hostInfoService.updateById(host);
+        }
+        if (!onlineHosts.isEmpty()) {
+            log.info("Reset {} online host(s) to offline on startup", onlineHosts.size());
+        }
     }
 
     @PreDestroy

@@ -54,6 +54,7 @@ public class ClientHandler implements Runnable {
 
     private final Map<Integer, HostProcess> processSnapshot = new HashMap<>();
     private int expectedProcessSeq = 1;
+    private volatile long lastHeartbeatDbUpdate = 0;
 
     public ClientHandler(Socket clientSocket, long connectionId,
                          UserService userService, HostInfoService hostInfoService,
@@ -273,6 +274,18 @@ public class ClientHandler implements Runnable {
         }
         hostMetricMapper.insert(metric);
         log.debug("[#{}] Saved HostMetric: hostId={}, cpu={}%", connectionId, metric.getHostId(), metric.getCpuUsage());
+
+        if (registeredHostId != null) {
+            long now = System.currentTimeMillis();
+            if (now - lastHeartbeatDbUpdate > 30_000) {
+                HostInfo hostInfo = hostInfoService.getById(registeredHostId);
+                if (hostInfo != null) {
+                    hostInfo.setLastHeartbeat(LocalDateTime.now());
+                    hostInfoService.updateById(hostInfo);
+                }
+                lastHeartbeatDbUpdate = now;
+            }
+        }
     }
 
     private void onProcessListReceived(List<HostProcess> processes) {

@@ -213,7 +213,7 @@ INSERT INTO `role` (`role_key`, `role_name`, `description`) VALUES
 
 -- 初始化超管账号（密码 123456 的 BCrypt 加密）
 INSERT INTO `user` (`username`, `email`, `password`, `agent_key`, `status`) VALUES
-('admin', '1@example.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 1);
+('admin', '1@example.com', '$2a$10$wV0PoqPUK0etpdEUn11UI.NMJfLWSUc8ZwhwNkIhi5PpJw2DgEIwm', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 1);
 
 -- 为超管分配 SUPER_ADMIN 角色
 INSERT INTO `user_role` (`user_id`, `role_id`) VALUES
@@ -246,13 +246,13 @@ SELECT 3, id FROM `permission` WHERE `perm_key` IN ('monitor:dashboard', 'monito
 -- 开启事件调度器
 SET GLOBAL event_scheduler = ON;
 
--- 定时清理30天前的性能指标数据（每天凌晨3点执行）
+-- 定时清理48小时前的性能指标数据（每天凌晨3点执行）
 CREATE EVENT IF NOT EXISTS `ev_clean_host_metric`
 ON SCHEDULE EVERY 1 DAY STARTS CONCAT(CURDATE() + INTERVAL 1 DAY, ' 03:00:00')
 ON COMPLETION PRESERVE ENABLE
-COMMENT '每天凌晨3点清理30天前的host_metric数据'
+COMMENT '每天凌晨3点清理48小时前的host_metric数据'
 DO
-  DELETE FROM `host_metric` WHERE `collect_time` < DATE_SUB(NOW(), INTERVAL 30 DAY);
+  DELETE FROM `host_metric` WHERE `collect_time` < DATE_SUB(NOW(), INTERVAL 48 HOUR);
 
 -- 定时清理48小时前的进程数据（每48小时凌晨4点执行）
 CREATE EVENT IF NOT EXISTS `ev_clean_host_process`

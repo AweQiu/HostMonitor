@@ -122,12 +122,21 @@ public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
 
     private LocalDateTime parseRange(String range) {
         LocalDateTime now = LocalDateTime.now();
-        if (range == null) return now.minusHours(1);
+        if (range == null) return now.minusMinutes(5);
+        if (range.endsWith("m")) {
+            int minutes = Integer.parseInt(range.substring(0, range.length() - 1));
+            return now.minusMinutes(Math.min(minutes, 2880));
+        }
+        if (range.endsWith("h")) {
+            int hours = Integer.parseInt(range.substring(0, range.length() - 1));
+            return now.minusHours(Math.min(hours, 48));
+        }
         return switch (range) {
-            case "6h" -> now.minusHours(6);
-            case "24h" -> now.minusHours(24);
-            case "7d" -> now.minusDays(7);
-            default -> now.minusHours(1);
+            case "5m" -> now.minusMinutes(5);
+            case "10m" -> now.minusMinutes(10);
+            case "30m" -> now.minusMinutes(30);
+            case "1h" -> now.minusHours(1);
+            default -> now.minusMinutes(5);
         };
     }
 

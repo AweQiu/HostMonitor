@@ -5,68 +5,22 @@ import {
   BgColorsOutlined,
   SendOutlined
 } from '@ant-design/icons-vue'
+import { getSettings, saveSettings as saveToStore, resetSettings as resetStore, type AppSettings } from '@/utils/settings'
 
 const activeTab = ref('general')
 
-const STORAGE_KEY = 'host_monitor_settings'
+const settings = reactive<AppSettings>(getSettings())
 
-const defaultSettings = {
-  systemName: 'HostMonitor',
-  themeColor: '#1890ff',
-  sessionTimeout: 4,
-  dataRetentionDays: 30,
-  metricRefreshInterval: 10,
-  defaultMetricRange: '1h',
-  hostListSortBy: 'status',
-  metricIntervalMs: 5000,
-  processIntervalMs: 15000,
-  screenFps: 5,
-  screenJpegQuality: 0.5,
-  processCpuThreshold: 1.0,
-  heartbeatTimeout: 60,
-  offlineThreshold: 60,
-  notificationRetentionDays: 30,
-  emailNotificationEnabled: false,
-  smtpServer: '',
-  smtpPort: 465,
-  smtpSender: '',
-  smtpAuthCode: ''
-}
-
-const settings = reactive({ ...defaultSettings })
-
-function loadSettings() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) {
-      Object.assign(settings, JSON.parse(saved))
-    }
-  } catch {
-    // ignore
-  }
-}
-
-function saveSettings() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+function handleSave() {
+  saveToStore(settings)
   message.success('设置已保存')
 }
 
-function resetSettings() {
-  Object.assign(settings, defaultSettings)
-  localStorage.removeItem(STORAGE_KEY)
+function handleReset() {
+  const defaults = resetStore()
+  Object.assign(settings, defaults)
   message.success('设置已重置为默认值')
 }
-
-const themeColors = [
-  { color: '#1890ff', label: '默认蓝' },
-  { color: '#0960bd', label: '深蓝' },
-  { color: '#52c41a', label: '自然绿' },
-  { color: '#13c2c2', label: '青色' },
-  { color: '#722ed1', label: '紫色' },
-  { color: '#eb2f96', label: '洋红' },
-  { color: '#fa541c', label: '橙色' },
-  { color: '#faad14', label: '金色' }
-]
 
 const emailTestLoading = ref(false)
 
@@ -91,7 +45,7 @@ function sendTestEmail() {
 }
 
 onMounted(() => {
-  loadSettings()
+  Object.assign(settings, getSettings())
 })
 </script>
 
@@ -104,22 +58,6 @@ onMounted(() => {
             <a-form-item label="系统名称">
               <a-input v-model:value="settings.systemName" placeholder="输入系统名称" style="max-width: 360px" />
               <div class="form-hint">显示在侧边栏顶部和浏览器标题栏</div>
-            </a-form-item>
-
-            <a-form-item label="主题色">
-              <div class="theme-color-picker">
-                <div
-                  v-for="item in themeColors"
-                  :key="item.color"
-                  class="theme-color-item"
-                  :class="{ active: settings.themeColor === item.color }"
-                  :style="{ backgroundColor: item.color }"
-                  :title="item.label"
-                  @click="settings.themeColor = item.color"
-                >
-                  <span v-if="settings.themeColor === item.color" class="check-mark">✓</span>
-                </div>
-              </div>
             </a-form-item>
 
             <a-form-item label="会话超时时间">
@@ -140,8 +78,8 @@ onMounted(() => {
 
             <a-form-item>
               <a-space>
-                <a-button type="primary" @click="saveSettings">保存设置</a-button>
-                <a-button @click="resetSettings">恢复默认</a-button>
+                <a-button type="primary" @click="handleSave">保存设置</a-button>
+                <a-button @click="handleReset">恢复默认</a-button>
               </a-space>
             </a-form-item>
           </a-form>
@@ -182,8 +120,8 @@ onMounted(() => {
 
             <a-form-item>
               <a-space>
-                <a-button type="primary" @click="saveSettings">保存设置</a-button>
-                <a-button @click="resetSettings">恢复默认</a-button>
+                <a-button type="primary" @click="handleSave">保存设置</a-button>
+                <a-button @click="handleReset">恢复默认</a-button>
               </a-space>
             </a-form-item>
           </a-form>
@@ -240,8 +178,8 @@ onMounted(() => {
 
             <a-form-item>
               <a-space>
-                <a-button type="primary" @click="saveSettings">保存设置</a-button>
-                <a-button @click="resetSettings">恢复默认</a-button>
+                <a-button type="primary" @click="handleSave">保存设置</a-button>
+                <a-button @click="handleReset">恢复默认</a-button>
               </a-space>
             </a-form-item>
           </a-form>
@@ -289,8 +227,8 @@ onMounted(() => {
 
             <a-form-item>
               <a-space>
-                <a-button type="primary" @click="saveSettings">保存设置</a-button>
-                <a-button @click="resetSettings">恢复默认</a-button>
+                <a-button type="primary" @click="handleSave">保存设置</a-button>
+                <a-button @click="handleReset">恢复默认</a-button>
               </a-space>
             </a-form-item>
           </a-form>
@@ -347,37 +285,7 @@ onMounted(() => {
   align-items: center;
 }
 
-.theme-color-picker {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.theme-color-item {
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.15s, box-shadow 0.15s;
-  border: 2px solid transparent;
-}
-
-.theme-color-item:hover {
-  transform: scale(1.12);
-}
-
-.theme-color-item.active {
-  border-color: #333;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
-}
-
-.check-mark {
-  color: #fff;
-  font-size: 16px;
-  font-weight: bold;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+.client-config-table {
+  margin-bottom: 8px;
 }
 </style>
