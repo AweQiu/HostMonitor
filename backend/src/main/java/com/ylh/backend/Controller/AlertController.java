@@ -32,7 +32,7 @@ public class AlertController {
     }
 
     @PutMapping("/{id}/resolve")
-    public Result<Void> resolve(@PathVariable Long id) {
+    public Result<String> resolve(@PathVariable Long id) {
         Long userId = getCurrentUserId();
         List<String> roles = userService.getUserRoleKeys(userId);
         alertService.resolveAlert(id, userId, roles);

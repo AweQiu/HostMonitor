@@ -32,7 +32,7 @@ public class SocketServer {
     private static final long HEARTBEAT_CHECK_INTERVAL_MS = 30_000;
     private static final long HEARTBEAT_TIMEOUT_MS = 60_000;
 
-    @Value("${socket.port:12345}")
+    @Value("${socket.port:10801}")
     private int port;
 
     private final UserService userService;

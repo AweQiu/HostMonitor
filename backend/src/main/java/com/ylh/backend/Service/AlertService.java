@@ -23,6 +23,7 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
     private static final long DEDUP_MINUTES = 30;
 
+    private final AlertSettingService alertSettingService;
     private final ProcessRuleService processRuleService;
     private final NotificationService notificationService;
     private final HostInfoService hostInfoService;
@@ -31,6 +32,8 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
     @Transactional
     public void checkProcessAlerts(Long hostId, Map<Integer, HostProcess> processSnapshot) {
+        if (!alertSettingService.getBoolean("process_alert_enabled", true)) return;
+
         HostInfo host = hostInfoService.getById(hostId);
         if (host == null) return;
 
@@ -62,9 +65,99 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
         }
     }
 
+    @Transactional
+    public void checkPerformanceAlerts(Long hostId, HostMetric metric) {
+        if (!alertSettingService.getBoolean("performance_alert_enabled", true)) return;
+
+        HostInfo host = hostInfoService.getById(hostId);
+        if (host == null) return;
+
+        User hostUser = userService.getById(host.getUserId());
+        if (hostUser == null) return;
+
+        Long groupId = hostUser.getGroupId();
+
+        double cpuThreshold = alertSettingService.getDouble("cpu_threshold", 90);
+        double memoryThreshold = alertSettingService.getDouble("memory_threshold", 90);
+        double diskThreshold = alertSettingService.getDouble("disk_threshold", 90);
+
+        if (metric.getCpuUsage() != null
+                && metric.getCpuUsage().doubleValue() > cpuThreshold) {
+            String detail = String.format("CPU: %.1f%% (阈值: %.0f%%)", metric.getCpuUsage().doubleValue(), cpuThreshold);
+            createPerformanceAlertIfNotDuplicate(hostId, "CPU_HIGH", "CPU", host, hostUser, groupId, detail);
+        }
+
+        if (metric.getMemoryUsage() != null
+                && metric.getMemoryUsage().doubleValue() > memoryThreshold) {
+            String detail = String.format("内存: %.1f%% (阈值: %.0f%%)", metric.getMemoryUsage().doubleValue(), memoryThreshold);
+            createPerformanceAlertIfNotDuplicate(hostId, "MEMORY_HIGH", "Memory", host, hostUser, groupId, detail);
+        }
+
+        if (metric.getDiskUsage() != null
+                && metric.getDiskUsage().doubleValue() > diskThreshold) {
+            String detail = String.format("磁盘: %.1f%% (阈值: %.0f%%)", metric.getDiskUsage().doubleValue(), diskThreshold);
+            createPerformanceAlertIfNotDuplicate(hostId, "DISK_HIGH", "Disk", host, hostUser, groupId, detail);
+        }
+    }
+
+    private void createPerformanceAlertIfNotDuplicate(Long hostId, String alertType, String metricName,
+                                                       HostInfo host, User hostUser, Long groupId, String detail) {
+        int dedupMinutes = alertSettingService.getInt("alert_dedup_minutes", 30);
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(dedupMinutes);
+        long existing = count(new LambdaQueryWrapper<AlertRecord>()
+                .eq(AlertRecord::getHostId, hostId)
+                .eq(AlertRecord::getAlertType, alertType)
+                .eq(AlertRecord::getProcessName, metricName)
+                .eq(AlertRecord::getStatus, 0)
+                .ge(AlertRecord::getCreateTime, cutoff));
+
+        if (existing > 0) {
+            log.debug("Alert dedup: hostId={}, type={}, metric={} already has recent alert", hostId, alertType, metricName);
+            return;
+        }
+
+        String title;
+        if ("CPU_HIGH".equals(alertType)) {
+            title = "[性能告警] CPU 使用率过高";
+        } else if ("MEMORY_HIGH".equals(alertType)) {
+            title = "[性能告警] 内存使用率过高";
+        } else {
+            title = "[性能告警] 磁盘使用率过高";
+        }
+
+        String content = String.format("主机 %s (%s) %s\n检测时间: %s",
+                host.getHostname(), host.getIpAddress(), detail, LocalDateTime.now());
+
+        List<Long> targetUserIds = new ArrayList<>();
+        targetUserIds.add(hostUser.getId());
+
+        if (groupId != null) {
+            List<User> groupAdmins = findGroupAdmins(groupId);
+            for (User admin : groupAdmins) {
+                if (!targetUserIds.contains(admin.getId())) {
+                    targetUserIds.add(admin.getId());
+                }
+            }
+        }
+
+        Long notificationId = notificationService.sendSystemNotification(title, content, targetUserIds);
+
+        AlertRecord record = new AlertRecord();
+        record.setHostId(hostId);
+        record.setAlertType(alertType);
+        record.setProcessName(metricName);
+        record.setRuleId(null);
+        record.setNotificationId(notificationId);
+        record.setStatus(0);
+        save(record);
+
+        log.info("Created performance alert: hostId={}, type={}, metric={}, notificationId={}", hostId, alertType, metricName, notificationId);
+    }
+
     private void createAlertIfNotDuplicate(Long hostId, String alertType, String processName,
                                             Long ruleId, HostInfo host, User hostUser, Long groupId) {
-        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(DEDUP_MINUTES);
+        int dedupMinutes = alertSettingService.getInt("alert_dedup_minutes", 30);
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(dedupMinutes);
         long existing = count(new LambdaQueryWrapper<AlertRecord>()
                 .eq(AlertRecord::getHostId, hostId)
                 .eq(AlertRecord::getAlertType, alertType)
@@ -280,6 +373,12 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
             vo.setAlertTypeLabel("黑名单进程运行");
         } else if ("WHITELIST_MISSING".equals(record.getAlertType())) {
             vo.setAlertTypeLabel("白名单进程缺失");
+        } else if ("CPU_HIGH".equals(record.getAlertType())) {
+            vo.setAlertTypeLabel("CPU使用率过高");
+        } else if ("MEMORY_HIGH".equals(record.getAlertType())) {
+            vo.setAlertTypeLabel("内存使用率过高");
+        } else if ("DISK_HIGH".equals(record.getAlertType())) {
+            vo.setAlertTypeLabel("磁盘使用率过高");
         } else {
             vo.setAlertTypeLabel(record.getAlertType());
         }

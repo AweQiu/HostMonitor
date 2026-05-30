@@ -23,7 +23,7 @@ public class UdpSender {
     public UdpSender() {
         Properties props = ConfigUtil.loadProperties("application.properties");
         this.host = props.getProperty("screen.udp.host", props.getProperty("socket.host", "127.0.0.1"));
-        this.port = Integer.parseInt(props.getProperty("screen.udp.port", "12346"));
+        this.port = Integer.parseInt(props.getProperty("screen.udp.port", "10802"));
         this.agentKey = props.getProperty("agent.key", "");
     }
 

@@ -6,10 +6,35 @@ import {
   SendOutlined
 } from '@ant-design/icons-vue'
 import { getSettings, saveSettings as saveToStore, resetSettings as resetStore, type AppSettings } from '@/utils/settings'
+import request from '@/utils/request'
 
 const activeTab = ref('general')
 
 const settings = reactive<AppSettings>(getSettings())
+
+const alertSettings = reactive<Record<string, string>>({})
+const alertLoading = ref(false)
+
+async function loadAlertSettings() {
+  try {
+    const data = await request.get('/alert-settings')
+    Object.assign(alertSettings, data.data || {})
+  } catch {
+    // ignore
+  }
+}
+
+async function saveAlertSettings() {
+  alertLoading.value = true
+  try {
+    await request.put('/alert-settings', alertSettings)
+    message.success('告警设置已保存')
+  } catch {
+    // handled by interceptor
+  } finally {
+    alertLoading.value = false
+  }
+}
 
 function handleSave() {
   saveToStore(settings)
@@ -46,6 +71,7 @@ function sendTestEmail() {
 
 onMounted(() => {
   Object.assign(settings, getSettings())
+  loadAlertSettings()
 })
 </script>
 
@@ -238,22 +264,50 @@ onMounted(() => {
       <a-tab-pane key="alert" tab="告警设置">
         <div class="settings-section">
           <a-form layout="vertical" class="settings-form">
+            <a-divider orientation="left">进程告警</a-divider>
+
             <a-form-item label="启用进程告警">
-              <a-switch v-model:checked="settings.processAlertEnabled" />
+              <a-switch :checked="alertSettings.process_alert_enabled === 'true'" @change="(v: boolean) => alertSettings.process_alert_enabled = v ? 'true' : 'false'" />
               <div class="form-hint">检测到黑名单进程运行或白名单进程未运行时自动发送告警通知</div>
             </a-form-item>
 
+            <a-divider orientation="left">性能告警</a-divider>
+
+            <a-form-item label="启用性能告警">
+              <a-switch :checked="alertSettings.performance_alert_enabled === 'true'" @change="(v: boolean) => alertSettings.performance_alert_enabled = v ? 'true' : 'false'" />
+              <div class="form-hint">CPU、内存、磁盘使用率超过阈值时自动发送告警通知</div>
+            </a-form-item>
+
+            <template v-if="alertSettings.performance_alert_enabled === 'true'">
+              <a-form-item label="CPU 使用率阈值">
+                <a-input-number :value="Number(alertSettings.cpu_threshold || 90)" :min="1" :max="100" style="max-width: 200px" @change="(v: number) => alertSettings.cpu_threshold = String(v)" />
+                <span class="form-unit">%</span>
+                <div class="form-hint">CPU 使用率超过此值时触发告警</div>
+              </a-form-item>
+
+              <a-form-item label="内存使用率阈值">
+                <a-input-number :value="Number(alertSettings.memory_threshold || 90)" :min="1" :max="100" style="max-width: 200px" @change="(v: number) => alertSettings.memory_threshold = String(v)" />
+                <span class="form-unit">%</span>
+                <div class="form-hint">内存使用率超过此值时触发告警</div>
+              </a-form-item>
+
+              <a-form-item label="磁盘使用率阈值">
+                <a-input-number :value="Number(alertSettings.disk_threshold || 90)" :min="1" :max="100" style="max-width: 200px" @change="(v: number) => alertSettings.disk_threshold = String(v)" />
+                <span class="form-unit">%</span>
+                <div class="form-hint">磁盘使用率超过此值时触发告警</div>
+              </a-form-item>
+            </template>
+
+            <a-divider orientation="left">通用设置</a-divider>
+
             <a-form-item label="告警去重间隔">
-              <a-input-number v-model:value="settings.alertDedupMinutes" :min="5" :max="1440" :step="5" style="max-width: 200px" />
+              <a-input-number :value="Number(alertSettings.alert_dedup_minutes || 30)" :min="5" :max="1440" :step="5" style="max-width: 200px" @change="(v: number) => alertSettings.alert_dedup_minutes = String(v)" />
               <span class="form-unit">分钟</span>
-              <div class="form-hint">同一主机同一进程的同一类型告警，在间隔时间内不重复发送</div>
+              <div class="form-hint">同一主机同一类型的告警，在间隔时间内不重复发送</div>
             </a-form-item>
 
             <a-form-item>
-              <a-space>
-                <a-button type="primary" @click="handleSave">保存设置</a-button>
-                <a-button @click="handleReset">恢复默认</a-button>
-              </a-space>
+              <a-button type="primary" :loading="alertLoading" @click="saveAlertSettings">保存告警设置</a-button>
             </a-form-item>
           </a-form>
         </div>

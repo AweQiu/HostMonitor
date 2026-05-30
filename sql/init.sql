@@ -151,6 +151,25 @@ CREATE TABLE `host_process` (
   CONSTRAINT `fk_process_host` FOREIGN KEY (`host_id`) REFERENCES `host` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 告警设置表
+CREATE TABLE `alert_setting` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `setting_key` VARCHAR(50) NOT NULL,
+  `setting_value` VARCHAR(255) NOT NULL,
+  `description` VARCHAR(255),
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_setting_key` (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO `alert_setting` (`setting_key`, `setting_value`, `description`) VALUES
+('process_alert_enabled', 'true', '进程告警开关'),
+('performance_alert_enabled', 'true', '性能告警开关'),
+('cpu_threshold', '90', 'CPU使用率告警阈值(%)'),
+('memory_threshold', '90', '内存使用率告警阈值(%)'),
+('disk_threshold', '90', '磁盘使用率告警阈值(%)'),
+('alert_dedup_minutes', '30', '告警去重间隔(分钟)');
+
 -- 进程规则表
 CREATE TABLE `process_rule` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,

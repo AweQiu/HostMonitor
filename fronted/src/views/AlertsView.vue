@@ -96,6 +96,9 @@ onMounted(() => {
         >
           <a-select-option value="BLACKLIST_RUNNING">黑名单进程运行</a-select-option>
           <a-select-option value="WHITELIST_MISSING">白名单进程缺失</a-select-option>
+          <a-select-option value="CPU_HIGH">CPU使用率过高</a-select-option>
+          <a-select-option value="MEMORY_HIGH">内存使用率过高</a-select-option>
+          <a-select-option value="DISK_HIGH">磁盘使用率过高</a-select-option>
         </a-select>
         <a-select
           v-model:value="filterStatus"
@@ -131,8 +134,8 @@ onMounted(() => {
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'alertTypeLabel'">
-          <a-tag :color="record.alertType === 'BLACKLIST_RUNNING' ? 'red' : 'orange'">
-            <WarningOutlined v-if="record.alertType === 'BLACKLIST_RUNNING'" />
+          <a-tag :color="record.alertType === 'BLACKLIST_RUNNING' ? 'red' : record.alertType === 'WHITELIST_MISSING' ? 'orange' : 'volcano'">
+            <WarningOutlined v-if="record.alertType === 'BLACKLIST_RUNNING' || record.alertType === 'CPU_HIGH'" />
             {{ record.alertTypeLabel }}
           </a-tag>
         </template>

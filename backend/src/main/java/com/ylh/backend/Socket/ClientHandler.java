@@ -57,6 +57,7 @@ public class ClientHandler implements Runnable {
     private final Map<Integer, HostProcess> processSnapshot = new HashMap<>();
     private int expectedProcessSeq = 1;
     private volatile long lastHeartbeatDbUpdate = 0;
+    private volatile long lastPerfAlertCheck = 0;
 
     public ClientHandler(Socket clientSocket, long connectionId,
                          UserService userService, HostInfoService hostInfoService,
@@ -287,6 +288,15 @@ public class ClientHandler implements Runnable {
                     hostInfoService.updateById(hostInfo);
                 }
                 lastHeartbeatDbUpdate = now;
+            }
+
+            if (now - lastPerfAlertCheck > 30_000) {
+                try {
+                    alertService.checkPerformanceAlerts(registeredHostId, metric);
+                } catch (Exception e) {
+                    log.error("[#{}] Error checking performance alerts: {}", connectionId, e.getMessage());
+                }
+                lastPerfAlertCheck = now;
             }
         }
     }

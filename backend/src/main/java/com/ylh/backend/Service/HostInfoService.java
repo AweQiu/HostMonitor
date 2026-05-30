@@ -28,7 +28,7 @@ public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
     private final GroupMapper groupMapper;
     private final HostMetricMapper hostMetricMapper;
 
-    public Page<HostInfo> pageList(int page, int size, String keyword) {
+    public Page<HostInfo> pageList(int page, int size, String keyword, Integer status) {
         Page<HostInfo> pageParam = new Page<>(page, size);
         LambdaQueryWrapper<HostInfo> wrapper = new LambdaQueryWrapper<>();
         if (keyword != null && !keyword.trim().isEmpty()) {
@@ -38,11 +38,14 @@ public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
                     .like(HostInfo::getIpAddress, keyword)
             );
         }
+        if (status != null) {
+            wrapper.eq(HostInfo::getStatus, status);
+        }
         wrapper.orderByDesc(HostInfo::getCreateTime);
         return page(pageParam, wrapper);
     }
 
-    public Page<HostInfo> pageListByUserIds(int page, int size, String keyword, List<Long> userIds) {
+    public Page<HostInfo> pageListByUserIds(int page, int size, String keyword, Integer status, List<Long> userIds) {
         Page<HostInfo> pageParam = new Page<>(page, size);
         LambdaQueryWrapper<HostInfo> wrapper = new LambdaQueryWrapper<>();
         wrapper.in(HostInfo::getUserId, userIds);
@@ -53,11 +56,14 @@ public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
                     .like(HostInfo::getIpAddress, keyword)
             );
         }
+        if (status != null) {
+            wrapper.eq(HostInfo::getStatus, status);
+        }
         wrapper.orderByDesc(HostInfo::getCreateTime);
         return page(pageParam, wrapper);
     }
 
-    public Page<HostInfo> pageListByUserId(int page, int size, String keyword, Long userId) {
+    public Page<HostInfo> pageListByUserId(int page, int size, String keyword, Integer status, Long userId) {
         Page<HostInfo> pageParam = new Page<>(page, size);
         LambdaQueryWrapper<HostInfo> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(HostInfo::getUserId, userId);
@@ -67,6 +73,9 @@ public class HostInfoService extends ServiceImpl<HostInfoMapper, HostInfo> {
                     .or()
                     .like(HostInfo::getIpAddress, keyword)
             );
+        }
+        if (status != null) {
+            wrapper.eq(HostInfo::getStatus, status);
         }
         wrapper.orderByDesc(HostInfo::getCreateTime);
         return page(pageParam, wrapper);

@@ -1,6 +1,6 @@
 # HostMonitor - 主机监控系统
 
-一个基于 Spring Boot + Vue 3 的主机监控系统，支持实时屏幕监控、系统指标采集、用户管理、组织管理和通知功能。
+一个基于 Spring Boot + Vue 3 的主机监控系统，支持实时屏幕监控、系统指标采集、进程监控、黑白名单规则、告警通知、用户管理、组织管理等功能。
 
 ***
 
@@ -8,15 +8,15 @@
 
 ### 后端技术栈
 
-Java 21 / Spring Boot 3.4.7 / Spring Security 6.4.x / MyBatis-Plus 3.5.9 / MySQL 8.0+ / JWT (jjwt 0.12.6) / WebSocket / Jackson / Lombok
+Spring Boot 3.4.7 / Spring Security 6.4.x / MyBatis-Plus 3.5.9 / MySQL 8.0+ / JWT (jjwt 0.12.6) / WebSocket / Lombok
 
 ### 前端技术栈
 
-Vue 3.5.x / TypeScript 6.0.x / Vite 8.0.x / Pinia 3.0.x / Ant Design Vue 4.2.x / Vue Router 5.0.x / Axios / ECharts 6.1.x
+Vue 3.5.x / TypeScript 6.0.x / Ant Design Vue 4.2.x / Axios / ECharts 6.1.x
 
 ### 客户端技术栈
 
-Java 21 / OSHI 6.6.5 / Gson 2.11.0 / Java AWT Robot / UDP/TCP Socket / Lombok
+Java 21 / OSHI 6.6.5 /  Java AWT Robot / UDP/TCP Socket / Lombok
 
 ***
 
@@ -43,6 +43,8 @@ CREATE DATABASE host_monitor DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unico
 mysql -u username -p host_monitor < sql/init.sql
 ```
 
+> 注意：init.sql 中包含 BCrypt 加密的密码哈希，请勿通过 shell `-e` 参数执行，避免 `$` 符号被变量展开。建议使用管道方式导入：`mysql ... < file.sql`
+
 1. **配置数据库连接**
 
 修改 `backend/src/main/resources/application.properties`:
@@ -62,9 +64,9 @@ mvn spring-boot:run
 
 服务端默认端口：
 
-- HTTP: `8080`
-- TCP Socket: `12345`
-- UDP Screen: `12346`
+- HTTP: `10800`
+- TCP Socket: `10801`
+- UDP Screen: `10802`
 
 ### 前端部署
 
@@ -74,7 +76,7 @@ npm install
 npm run dev
 ```
 
-前端默认端口：`5173`
+前端默认端口：`6000`
 
 Vite 代理配置已包含 `/api`、`/ws` 路径的转发，无需额外配置 Nginx。
 
@@ -83,11 +85,11 @@ Vite 代理配置已包含 `/api`、`/ws` 路径的转发，无需额外配置 N
 修改 `monitor-client/src/main/resources/application.properties`:
 
 ```properties
-socket.host=127.0.0.1
-socket.port=12345
+socket.host=your_server_ip
+socket.port=10801
 agent.key=your_agent_key_here
 screen.enabled=true
-screen.udp.port=12346
+screen.udp.port=10802
 screen.fps=5
 screen.jpeg.quality=0.5
 metric.interval.ms=5000
@@ -97,7 +99,7 @@ metric.interval.ms=5000
 
 ```bash
 cd monitor-client
-mvn compile exec:java
+mvn spring-boot:run
 ```
 
 ***
@@ -107,24 +109,25 @@ mvn compile exec:java
 ```
 ┌─────────────────────┐     HTTP/REST API      ┌─────────────────────┐
 │      前端 (Vue 3)   │ ──────────────────────> │      后端 (Spring)  │
-│   localhost:5173    │ <────────────────────── │    localhost:8080   │
+│   localhost:6000    │ <────────────────────── │   localhost:10800   │
 │                     │     WebSocket           │                     │
 └─────────────────────┘                        └───────────┬─────────┘
                                                            │
-                                                           │ TCP (12345) 认证/指令/指标
-                                                           │ UDP (12346) 屏幕帧
+                                                           │ TCP (10801) 认证/指令/指标/进程
+                                                           │ UDP (10802) 屏幕帧
                                                            ▼
                                                ┌─────────────────────┐
                                                │   客户端 (Java 21)  │
                                                │  屏幕截图 / 指标采集 │
+                                               │  进程采集 / 增量上报  │
                                                └─────────────────────┘
 ```
 
 通信协议说明：
 
-- **HTTP REST API**：前端与后端之间的常规数据交互（用户管理、主机列表、通知等）
+- **HTTP REST API**：前端与后端之间的常规数据交互（用户管理、主机列表、告警、通知等）
 - **WebSocket**：前端订阅屏幕监控实时画面，后端推送 JPEG 帧数据
-- **TCP Socket**：客户端与后端之间的长连接，用于 Agent Key 认证、主机信息上报、性能指标上报、指令下发
+- **TCP Socket**：客户端与后端之间的长连接，用于 Agent Key 认证、主机信息上报、性能指标上报、进程列表上报、指令下发
 - **UDP Socket**：客户端向后端发送屏幕截图帧数据，低延迟传输
 
 ***
@@ -142,20 +145,24 @@ mvn compile exec:java
 
 **客户端 → 服务端**：
 
-| TYPE          | Body 结构              | 说明       |
-| ------------- | -------------------- | -------- |
-| `AUTH`        | `{"agentKey":"xxx"}` | 认证请求     |
-| `HOST_INFO`   | HostInfo 字段 JSON     | 主机静态信息上报 |
-| `HOST_METRIC` | HostMetric 字段 JSON   | 性能指标上报   |
+| TYPE                 | Body 结构                                | 说明           |
+| -------------------- | -------------------------------------- | ------------ |
+| `AUTH`               | `{"agentKey":"xxx"}`                   | 认证请求         |
+| `HOST_INFO`          | HostInfo 字段 JSON                       | 主机静态信息上报     |
+| `HOST_METRIC`        | HostMetric 字段 JSON                     | 性能指标上报       |
+| `PROCESS_LIST`       | `[{pid,name,cpuUsage,...}]`            | 全量进程列表（旧版）   |
+| `PROCESS_LIST_FULL`  | `{seq,processes:[{...}]}`              | 全量进程列表（增量协议） |
+| `PROCESS_LIST_DELTA` | `{seq,added:[],removed:[],changed:[]}` | 增量进程变化       |
 
 **服务端 → 客户端**：
 
-| TYPE        | Body 结构                      | 说明             |
-| ----------- | ---------------------------- | -------------- |
-| `CONNECTED` | `{"version":"1.0"}`          | 连接欢迎消息         |
-| `OK`        | `{"message":"xxx","id":n}`   | 操作成功（id 为可选字段） |
-| `ERROR`     | `{"message":"xxx"}`          | 操作失败           |
-| `CMD`       | `{"command":"SCREEN_START"}` | 下发命令           |
+| TYPE             | Body 结构                      | 说明             |
+| ---------------- | ---------------------------- | -------------- |
+| `CONNECTED`      | `{"version":"1.0"}`          | 连接欢迎消息         |
+| `OK`             | `{"message":"xxx","id":n}`   | 操作成功（id 为可选字段） |
+| `ERROR`          | `{"message":"xxx"}`          | 操作失败           |
+| `CMD`            | `{"command":"SCREEN_START"}` | 下发命令           |
+| `PROCESS_RESYNC` | `{}`                         | 要求客户端重发全量进程列表  |
 
 ### 通信示例
 
@@ -171,6 +178,11 @@ mvn compile exec:java
   |<----- OK|{"message":"HostInfo received","id":1}| (确认)
   |                                     |
   |------- HOST_METRIC|{...} --------->|  (定时指标上报)
+  |      ...                            |
+  |                                     |
+  |------- PROCESS_LIST_FULL|{...} --->|  (全量进程列表)
+  |<----- OK|{"message":"...","seq":2} | (确认，期望下次seq=2)
+  |------- PROCESS_LIST_DELTA|{...} -->|  (增量进程变化)
   |      ...                            |
   |                                     |
   |<----- CMD|{"command":"SCREEN_START"}| (有用户订阅截屏)
@@ -196,8 +208,8 @@ mvn compile exec:java
 | 角色    | 角色标识         | 说明                             |
 | ----- | ------------ | ------------------------------ |
 | 超级管理员 | SUPER\_ADMIN | 拥有系统所有权限，不属于任何分组，可管理所有用户、分组、主机 |
-| 组管理员  | GROUP\_ADMIN | 管理本组用户和主机，可向组内发送通知             |
-| 普通用户  | USER         | 查看仪表盘和性能指标                     |
+| 组管理员  | GROUP\_ADMIN | 管理本组用户和主机，可向组内发送通知，可管理本组进程规则   |
+| 普通用户  | USER         | 查看仪表盘、性能指标、接收告警通知              |
 
 ### 权限规则
 
@@ -213,6 +225,8 @@ mvn compile exec:java
 | ---- | :---: | :---: | :---: |
 | 仪表盘  |   ✅   |   ✅   |   ✅   |
 | 主机管理 |   ✅   |   ✅   |   ✅   |
+| 告警中心 |   ✅   | ✅（本组） | ✅（本人） |
+| 进程管理 |   ✅   |   ✅   |   ❌   |
 | 用户管理 |   ✅   | ✅（本组） |   ❌   |
 | 组织管理 |   ✅   |   ❌   |   ❌   |
 | 通知管理 |   ✅   | ✅（本组） | ✅（接收） |
@@ -241,9 +255,9 @@ mvn compile exec:java
 
 ### 3. 主机管理
 
-- 主机列表查询（分页、搜索）
-- 主机详情查看（含最新性能指标）
-- 主机状态监控（在线/离线）
+- 主机列表查询（分页、搜索、按在线状态筛选）
+- 主机详情查看（含最新性能指标、进程列表、进程规则）
+- 主机状态监控（在线/离线，断开连接时自动标记离线）
 - 主机删除（需管理员权限）
 - 屏幕监控入口
 - 权限控制：超管查看所有主机，组管理员仅查看本组主机
@@ -262,15 +276,55 @@ mvn compile exec:java
 - 内存使用量/使用率
 - 磁盘使用量/使用率
 - 默认每 5 秒上报一次
-- 历史指标数据查询
+- 历史指标数据查询（5分钟/10分钟/30分钟/1小时/自定义，最长48小时）
+- 前端增量队列展示，减少数据传输量
+- 定时清理48小时前的历史数据
 
-### 6. 通知管理
+### 6. 进程监控
+
+- 客户端进程列表采集（PID、进程名、CPU/内存占用、用户、启动时间等）
+- 增量上报机制（首次全量，后续仅上报变化部分，含序列号校验与重同步）
+- 主机详情页展示进程列表，标注黑白名单状态
+- 按需刷新（手动点击刷新按钮）
+
+### 7. 进程规则（黑白名单）
+
+- 按分组配置黑名单/白名单规则
+- 黑名单：指定进程名不允许运行
+- 白名单：指定进程名必须运行
+- 进程列表中实时标注违规状态
+- 权限控制：超管管理所有规则，组管理员管理本组规则
+
+### 8. 告警系统
+
+- **进程告警**：检测到黑名单进程运行或白名单进程未运行时自动触发
+- **性能告警**：CPU/内存/磁盘使用率超过阈值时自动触发
+- 告警自动发送通知给主机所属用户和组管理员
+- 告警去重机制（同一主机同一类型告警在设定间隔内不重复发送）
+- 告警记录管理（列表查看、按类型/状态筛选、标记已处理）
+- 仪表盘展示未处理告警数量和最近告警摘要
+- 告警设置（后端数据库存储，仅超管可修改）：
+  - 进程告警开关
+  - 性能告警开关
+  - CPU/内存/磁盘使用率阈值
+  - 告警去重间隔
+
+### 9. 通知管理
 
 - 超级管理员可发送全体通知、指定分组通知、指定用户通知
 - 组管理员可向本组发送通知
+- 系统自动发送告警通知（发送者显示为"系统"）
 - 通知已读/未读状态管理
 - 顶部铃铛实时显示未读数量
 - 通知列表分页查看
+
+### 10. 系统设置
+
+- 常规设置（系统名称、会话超时时间）
+- 展示设置（指标刷新间隔、默认指标时间范围、主机列表排序方式）
+- 客户端设置（指标采集间隔、进程采集间隔、屏幕帧率、JPEG质量、进程CPU阈值、心跳超时、离线判定阈值）
+- 告警设置（进程告警开关、性能告警开关、CPU/内存/磁盘阈值、去重间隔）
+- 邮件设置（SMTP配置、测试邮件发送）
 
 ***
 
@@ -286,7 +340,7 @@ mvn compile exec:java
 ### 客户端认证（Agent Key）
 
 1. 用户注册时系统自动生成 UUID 格式的 Agent Key，存入 user 表
-2. 客户端启动时使用配置的 Agent Key 连接服务端 TCP Socket（端口 12345）
+2. 客户端启动时使用配置的 Agent Key 连接服务端 TCP Socket（端口 10801）
 3. 客户端发送 `AUTH|{"agentKey":"xxx"}` 消息进行认证
 4. 服务端验证 Agent Key 对应的用户，建立用户-主机一对一绑定
 5. 同一 Agent Key 仅允许一个客户端连接，重复连接将被拒绝
@@ -300,18 +354,20 @@ mvn compile exec:java
 
 1. 用户注册后，系统自动生成 Agent Key 并存入 user 表
 2. 用户将 Agent Key 配置到客户端的 `application.properties`
-3. 客户端启动后，通过 TCP Socket 连接服务端（端口 12345）
+3. 客户端启动后，通过 TCP Socket 连接服务端（端口 10801）
 4. 客户端发送 `AUTH` 消息携带 Agent Key 进行认证
 5. 服务端验证 Agent Key，查找对应用户
 6. 认证成功后，客户端采集主机信息（CPU 型号、核心数、内存、磁盘、操作系统等）
-7. 客户端通过 `HOST_INFO` 消息上报主机信息，服务端创建或更新 host 表记录（user\_id 关联）
+7. 客户端通过 `HOST_INFO` 消息上报主机信息，服务端创建或更新 host 表记录（user\_id 关联），主机状态设为在线
 8. 连接建立后，客户端定期通过 `HOST_METRIC` 消息上报性能指标和心跳
+9. 客户端断开连接时，服务端自动将主机状态设为离线
+10. 服务端重启时，自动将所有在线主机重置为离线状态
 
 ### 屏幕监控流程
 
 1. 前端点击"监控"按钮，建立 WebSocket 连接
 2. 后端检测到首个订阅者，通过 `CMD|{"command":"SCREEN_START"}` 通知客户端开始截屏
-3. 客户端使用 AWT Robot 截屏，JPEG 压缩后通过 UDP 发送（端口 12346）
+3. 客户端使用 AWT Robot 截屏，JPEG 压缩后通过 UDP 发送（端口 10802）
 4. 后端接收 UDP 帧，通过 WebSocket 广播给所有订阅者
 5. 前端收到帧数据，通过 Canvas 双缓冲渲染显示
 6. 前端关闭页面，WebSocket 断开
@@ -323,10 +379,39 @@ mvn compile exec:java
 2. 客户端使用 OSHI 库采集系统性能指标（CPU 使用率、内存使用率、磁盘使用率等）
 3. 客户端通过 `HOST_METRIC` 消息将性能指标发送到服务端
 4. 服务端解析 JSON 消息体，存入 host\_metric 表
-5. 服务端更新主机的最后心跳时间和在线状态
-6. 前端通过 HTTP 请求获取主机状态和历史指标数据
+5. 服务端每 30 秒更新主机的最后心跳时间
+6. 服务端每 30 秒检测性能指标是否超过告警阈值，超阈值则创建告警并自动发送通知
+7. 前端通过 HTTP 请求获取主机状态和历史指标数据
+8. MySQL 定时事件每天凌晨 3 点清理 48 小时前的历史指标数据
+
+### 进程监控流程
+
+1. 客户端启动 ProcessReporter 定时任务，采集系统进程列表
+2. 首次上报发送全量进程列表（`PROCESS_LIST_FULL`），后续发送增量变化（`PROCESS_LIST_DELTA`）
+3. 增量数据包含序列号，服务端校验序列号，不匹配时请求客户端重发全量列表（`PROCESS_RESYNC`）
+4. 服务端维护内存中的进程快照，合并增量数据后批量入库
+5. 入库后触发进程告警检测：检查黑名单进程是否运行、白名单进程是否缺失
+6. 前端按需刷新进程列表，展示每个进程的黑白名单标注
+
+### 告警流程
+
+1. 进程数据入库或性能指标上报时，触发告警检测
+2. 检查对应告警类型的开关是否启用
+3. 进程告警：匹配主机所属分组的黑白名单规则
+4. 性能告警：比较指标值与配置的阈值
+5. 去重检查：同一主机同一类型告警在设定间隔内不重复创建
+6. 创建告警记录（alert\_record 表），自动发送系统通知给主机用户和组管理员
+7. 前端告警中心展示告警列表，支持按类型/状态筛选和标记已处理
 
 ***
 
-<br />
+## 主机在线状态管理
+
+- 客户端连接并发送 `HOST_INFO` 时，主机状态设为在线（status=1）
+- 客户端断开连接时，服务端自动将主机状态设为离线（status=0）
+- 服务端心跳检测线程每 30 秒检查一次，60 秒无数据则关闭连接并标记离线
+- 服务端启动时，自动将所有在线主机重置为离线（防止服务重启后状态残留）
+- 主机列表 API 支持按在线状态筛选
+
+***
 

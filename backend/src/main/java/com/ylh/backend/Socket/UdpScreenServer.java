@@ -24,7 +24,7 @@ public class UdpScreenServer {
     private static final int MAX_PACKET_SIZE = 65507;
     private static final long CHUNK_TIMEOUT_MS = 2000;
 
-    @Value("${screen.udp.port:12346}")
+    @Value("${screen.udp.port:10802}")
     private int port;
 
     private final UserService userService;

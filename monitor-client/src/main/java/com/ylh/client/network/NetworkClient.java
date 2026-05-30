@@ -29,7 +29,7 @@ public class NetworkClient {
     public NetworkClient() {
         Properties props = ConfigUtil.loadProperties("application.properties");
         this.host = props.getProperty("socket.host", "127.0.0.1");
-        this.port = Integer.parseInt(props.getProperty("socket.port", "12345"));
+        this.port = Integer.parseInt(props.getProperty("socket.port", "10801"));
     }
 
     public NetworkClient(String host, int port) {

@@ -50,10 +50,10 @@ const stats = ref([
 ])
 
 function updateStats() {
-  stats.value[0].value = hostTotal.value
-  stats.value[1].value = hostOnline.value
-  stats.value[2].value = alertUnresolved.value
-  stats.value[3].value = hostOffline.value
+  stats.value[0]!.value = hostTotal.value
+  stats.value[1]!.value = hostOnline.value
+  stats.value[2]!.value = alertUnresolved.value
+  stats.value[3]!.value = hostOffline.value
 }
 
 onMounted(async () => {

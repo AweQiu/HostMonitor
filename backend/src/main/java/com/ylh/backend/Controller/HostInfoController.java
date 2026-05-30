@@ -33,7 +33,8 @@ public class HostInfoController {
     public Result<Map<String, Object>> listHosts(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String keyword) {
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Integer status) {
 
         Long currentUserId = getCurrentUserId();
         List<String> roles = userService.getUserRoleKeys(currentUserId);
@@ -43,7 +44,7 @@ public class HostInfoController {
         Page<HostInfo> pageResult;
 
         if (isSuperAdmin) {
-            pageResult = hostInfoService.pageList(page, size, keyword);
+            pageResult = hostInfoService.pageList(page, size, keyword, status);
         } else if (isGroupAdmin) {
             User currentUser = userService.getById(currentUserId);
             if (currentUser.getGroupId() == null) {
@@ -67,9 +68,9 @@ public class HostInfoController {
                 data.put("size", size);
                 return Result.success(data);
             }
-            pageResult = hostInfoService.pageListByUserIds(page, size, keyword, memberIds);
+            pageResult = hostInfoService.pageListByUserIds(page, size, keyword, status, memberIds);
         } else {
-            pageResult = hostInfoService.pageListByUserId(page, size, keyword, currentUserId);
+            pageResult = hostInfoService.pageListByUserId(page, size, keyword, status, currentUserId);
         }
 
         List<HostVO> records = hostInfoService.toVOList(pageResult.getRecords());
