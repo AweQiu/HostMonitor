@@ -1,8 +1,12 @@
 package com.ylh.backend.Controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.ylh.backend.Common.ForbiddenException;
+import com.ylh.backend.Common.NotFoundException;
 import com.ylh.backend.Common.Result;
+import com.ylh.backend.Config.AccessChecker;
 import com.ylh.backend.Dto.*;
+import jakarta.validation.Valid;
 import com.ylh.backend.Entity.Group;
 import com.ylh.backend.Entity.Role;
 import com.ylh.backend.Entity.User;
@@ -13,8 +17,6 @@ import com.ylh.backend.Service.GroupService;
 import com.ylh.backend.Service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -33,10 +35,11 @@ public class GroupController {
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
     private final ProcessRuleService processRuleService;
+    private final AccessChecker accessChecker;
 
     @GetMapping
     public Result<List<GroupVO>> listGroups() {
-        checkSuperAdminPermission();
+        accessChecker.requireSuperAdmin();
         List<Group> groups = groupService.list(
                 new LambdaQueryWrapper<Group>().orderByDesc(Group::getCreateTime)
         );
@@ -44,8 +47,8 @@ public class GroupController {
     }
 
     @PostMapping
-    public Result<Void> createGroup(@RequestBody CreateGroupRequest request) {
-        checkSuperAdminPermission();
+    public Result<Void> createGroup(@Valid @RequestBody CreateGroupRequest request) {
+        accessChecker.requireSuperAdmin();
 
         if (groupService.existsByGroupName(request.getGroupName())) {
             return Result.error("分组名称已存在");
@@ -65,8 +68,8 @@ public class GroupController {
     }
 
     @PutMapping("/{id}")
-    public Result<Void> updateGroup(@PathVariable Long id, @RequestBody UpdateGroupRequest request) {
-        checkSuperAdminPermission();
+    public Result<Void> updateGroup(@PathVariable Long id, @Valid @RequestBody UpdateGroupRequest request) {
+        accessChecker.requireSuperAdmin();
 
         Group group = groupService.getById(id);
         if (group == null) {
@@ -90,7 +93,7 @@ public class GroupController {
 
     @DeleteMapping("/{id}")
     public Result<Void> deleteGroup(@PathVariable Long id) {
-        checkSuperAdminPermission();
+        accessChecker.requireSuperAdmin();
 
         Group group = groupService.getById(id);
         if (group == null) {
@@ -115,7 +118,7 @@ public class GroupController {
 
     @GetMapping("/{id}/members")
     public Result<List<UserVO>> getGroupMembers(@PathVariable Long id) {
-        checkSuperAdminPermission();
+        accessChecker.requireSuperAdmin();
 
         Group group = groupService.getById(id);
         if (group == null) {
@@ -127,7 +130,7 @@ public class GroupController {
 
     @PostMapping("/{id}/members/{userId}")
     public Result<Void> addMember(@PathVariable Long id, @PathVariable Long userId) {
-        checkSuperAdminPermission();
+        accessChecker.requireSuperAdmin();
 
         Group group = groupService.getById(id);
         if (group == null) {
@@ -155,7 +158,7 @@ public class GroupController {
 
     @DeleteMapping("/{id}/members/{userId}")
     public Result<Void> removeMember(@PathVariable Long id, @PathVariable Long userId) {
-        checkSuperAdminPermission();
+        accessChecker.requireSuperAdmin();
 
         List<String> targetRoles = userService.getUserRoleKeys(userId);
         if (targetRoles.contains("SUPER_ADMIN")) {
@@ -184,7 +187,7 @@ public class GroupController {
 
     @PostMapping("/{id}/admin/{userId}")
     public Result<Void> assignAdmin(@PathVariable Long id, @PathVariable Long userId) {
-        checkSuperAdminPermission();
+        accessChecker.requireSuperAdmin();
         assignGroupAdmin(id, userId);
         log.info("超级管理员指定用户 {} 为分组 {} 的管理员", userId, id);
         return Result.success("指定组管理员成功", null);
@@ -192,7 +195,7 @@ public class GroupController {
 
     @DeleteMapping("/{id}/admin/{userId}")
     public Result<Void> revokeAdmin(@PathVariable Long id, @PathVariable Long userId) {
-        checkSuperAdminPermission();
+        accessChecker.requireSuperAdmin();
         revokeGroupAdmin(id, userId);
         log.info("超级管理员撤销了用户 {} 在分组 {} 的管理员身份", userId, id);
         return Result.success("撤销组管理员成功", null);
@@ -200,7 +203,7 @@ public class GroupController {
 
     @GetMapping("/{id}/process-rules")
     public Result<List<ProcessRuleVO>> getProcessRules(@PathVariable Long id) {
-        checkSuperAdminPermission();
+        accessChecker.requireSuperAdmin();
         List<ProcessRule> rules = processRuleService.getRulesByGroupId(id);
         List<ProcessRuleVO> voList = rules.stream().map(rule -> {
             ProcessRuleVO vo = new ProcessRuleVO();
@@ -222,12 +225,12 @@ public class GroupController {
     private void assignGroupAdmin(Long groupId, Long userId) {
         User user = userService.getById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new NotFoundException("用户不存在");
         }
 
         List<String> targetRoles = userService.getUserRoleKeys(userId);
         if (targetRoles.contains("SUPER_ADMIN")) {
-            throw new RuntimeException("超级管理员不能成为组管理员");
+            throw new ForbiddenException("超级管理员不能成为组管理员");
         }
 
         User currentAdmin = groupService.getGroupAdmin(groupId);
@@ -295,18 +298,5 @@ public class GroupController {
                 userRoleMapper.insert(ur);
             }
         }
-    }
-
-    private void checkSuperAdminPermission() {
-        Long currentUserId = getCurrentUserId();
-        List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
-        if (!currentRoles.contains("SUPER_ADMIN")) {
-            throw new RuntimeException("仅超级管理员可管理分组");
-        }
-    }
-
-    private Long getCurrentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        return (Long) authentication.getPrincipal();
     }
 }

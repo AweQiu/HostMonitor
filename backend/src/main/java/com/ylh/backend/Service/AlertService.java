@@ -3,6 +3,8 @@ package com.ylh.backend.Service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.ylh.backend.Common.ForbiddenException;
+import com.ylh.backend.Common.NotFoundException;
 import com.ylh.backend.Dto.AlertVO;
 import com.ylh.backend.Entity.*;
 import com.ylh.backend.Mapper.AlertRecordMapper;
@@ -29,6 +31,7 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
     private final HostInfoService hostInfoService;
     private final UserService userService;
     private final UserRoleMapper userRoleMapper;
+    private final EmailService emailService;
 
     @Transactional
     public void checkProcessAlerts(Long hostId, Map<Integer, HostProcess> processSnapshot) {
@@ -142,6 +145,8 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
         Long notificationId = notificationService.sendSystemNotification(title, content, targetUserIds);
 
+        sendAlertEmailAsync(targetUserIds, title, content);
+
         AlertRecord record = new AlertRecord();
         record.setHostId(hostId);
         record.setAlertType(alertType);
@@ -194,6 +199,8 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
         Long notificationId = notificationService.sendSystemNotification(title, content, targetUserIds);
 
+        sendAlertEmailAsync(targetUserIds, title, content);
+
         AlertRecord record = new AlertRecord();
         record.setHostId(hostId);
         record.setAlertType(alertType);
@@ -204,6 +211,20 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
         save(record);
 
         log.info("Created alert: hostId={}, type={}, process={}, notificationId={}", hostId, alertType, processName, notificationId);
+    }
+
+    private void sendAlertEmailAsync(List<Long> targetUserIds, String title, String content) {
+        if (!emailService.isEmailEnabled()) return;
+        List<String> emails = targetUserIds.stream()
+                .map(id -> userService.getById(id))
+                .filter(Objects::nonNull)
+                .map(User::getEmail)
+                .filter(Objects::nonNull)
+                .filter(e -> !e.isBlank())
+                .collect(Collectors.toList());
+        if (!emails.isEmpty()) {
+            emailService.sendAlertEmailAsync(emails, title, content.replace("\n", "<br>"));
+        }
     }
 
     private List<User> findGroupAdmins(Long groupId) {
@@ -288,7 +309,7 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
     public void resolveAlert(Long alertId, Long currentUserId, List<String> currentRoles) {
         AlertRecord record = getById(alertId);
         if (record == null) {
-            throw new RuntimeException("告警记录不存在");
+            throw new NotFoundException("告警记录不存在");
         }
 
         boolean isSuperAdmin = currentRoles.contains("SUPER_ADMIN");
@@ -297,19 +318,19 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
         if (!isSuperAdmin) {
             User currentUser = userService.getById(currentUserId);
             if (currentUser == null) {
-                throw new RuntimeException("无权操作");
+                throw new ForbiddenException("无权操作");
             }
             HostInfo host = hostInfoService.getById(record.getHostId());
             if (host == null) {
-                throw new RuntimeException("无权操作");
+                throw new ForbiddenException("无权操作");
             }
             if (isGroupAdmin) {
                 if (!currentUser.getGroupId().equals(hostUser(host).getGroupId())) {
-                    throw new RuntimeException("无权操作非本组告警");
+                    throw new ForbiddenException("无权操作非本组告警");
                 }
             } else {
                 if (!host.getUserId().equals(currentUserId)) {
-                    throw new RuntimeException("无权操作非本人告警");
+                    throw new ForbiddenException("无权操作非本人告警");
                 }
             }
         }

@@ -6,6 +6,7 @@ import com.ylh.backend.Dto.LoginRequest;
 import com.ylh.backend.Dto.RegisterRequest;
 import com.ylh.backend.Service.AuthService;
 import com.ylh.backend.Service.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -20,13 +21,13 @@ public class AuthController {
     private final UserService userService;
 
     @PostMapping("/login")
-    public Result<AuthResponse> login(@RequestBody LoginRequest request) {
+    public Result<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
         return Result.success("登录成功", response);
     }
 
     @PostMapping("/register")
-    public Result<Void> register(@RequestBody RegisterRequest request) {
+    public Result<Void> register(@Valid @RequestBody RegisterRequest request) {
         authService.register(request);
         return Result.success("注册成功", null);
     }

@@ -2,7 +2,11 @@ package com.ylh.backend.Controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.ylh.backend.Common.ForbiddenException;
+import com.ylh.backend.Common.NotFoundException;
+import com.ylh.backend.Common.PageResult;
 import com.ylh.backend.Common.Result;
+import com.ylh.backend.Config.AccessChecker;
 import com.ylh.backend.Dto.*;
 import com.ylh.backend.Entity.Role;
 import com.ylh.backend.Entity.User;
@@ -15,8 +19,6 @@ import com.ylh.backend.Service.UserService;
 import com.ylh.backend.Socket.SocketServer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,10 +36,11 @@ public class UserController {
     private final PasswordEncoder passwordEncoder;
     private final GroupService groupService;
     private final SocketServer socketServer;
+    private final AccessChecker accessChecker;
 
     @GetMapping("/me")
     public Result<UserVO> getCurrentUser() {
-        Long userId = getCurrentUserId();
+        Long userId = accessChecker.getCurrentUserId();
         User user = userService.getById(userId);
         if (user == null) {
             return Result.error("用户不存在");
@@ -47,25 +50,25 @@ public class UserController {
 
     @GetMapping("/roles")
     public Result<List<Role>> listRoles() {
-        checkAdminPermission();
+        accessChecker.requireAdmin();
         return Result.success(roleMapper.selectList(null));
     }
 
     @GetMapping("/groups")
     public Result<List<Group>> listGroups() {
-        checkAdminPermission();
+        accessChecker.requireAdmin();
         return Result.success(groupService.list());
     }
 
     @GetMapping
-    public Result<Page<UserVO>> listUsers(
+    public Result<PageResult<UserVO>> listUsers(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String roleKey,
             @RequestParam(required = false) Long groupId) {
-        Long currentUserId = getCurrentUserId();
-        List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
+        Long currentUserId = accessChecker.getCurrentUserId();
+        List<String> currentRoles = accessChecker.getCurrentUserRoles();
         User currentUser = userService.getById(currentUserId);
 
         Long filterGroupId = null;
@@ -86,14 +89,13 @@ public class UserController {
         }
 
         Page<User> userPage = userService.pageByRole(filterGroupId, roleKey, keyword, page, size);
-        Page<UserVO> voPage = new Page<>(userPage.getCurrent(), userPage.getSize(), userPage.getTotal());
-        voPage.setRecords(userService.toVOList(userPage.getRecords()));
-        return Result.success(voPage);
+        List<UserVO> voList = userService.toVOList(userPage.getRecords());
+        return Result.success(PageResult.of(userPage, voList));
     }
 
     @PostMapping
     public Result<Void> createUser(@RequestBody CreateUserRequest request) {
-        checkAdminPermission();
+        accessChecker.requireAdmin();
 
         if (userService.existsByUsername(request.getUsername())) {
             return Result.error("用户名已存在");
@@ -102,7 +104,7 @@ public class UserController {
             return Result.error("邮箱已被注册");
         }
 
-        Long currentUserId = getCurrentUserId();
+        Long currentUserId = accessChecker.getCurrentUserId();
         List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
         boolean isSuperAdmin = currentRoles.contains("SUPER_ADMIN");
         boolean isGroupAdmin = currentRoles.contains("GROUP_ADMIN");
@@ -134,7 +136,7 @@ public class UserController {
 
     @PutMapping("/{id}")
     public Result<Void> updateUser(@PathVariable Long id, @RequestBody UpdateUserRequest request) {
-        checkUserManagePermission(id);
+        accessChecker.requireUserManagePermission(id);
 
         User user = userService.getById(id);
         if (user == null) {
@@ -151,7 +153,7 @@ public class UserController {
             user.setStatus(request.getStatus());
         }
 
-        Long currentUserId = getCurrentUserId();
+        Long currentUserId = accessChecker.getCurrentUserId();
         List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
         boolean isSuperAdmin = currentRoles.contains("SUPER_ADMIN");
 
@@ -192,9 +194,9 @@ public class UserController {
 
     @DeleteMapping("/{id}")
     public Result<Void> deleteUser(@PathVariable Long id) {
-        checkUserManagePermission(id);
+        accessChecker.requireUserManagePermission(id);
 
-        Long currentUserId = getCurrentUserId();
+        Long currentUserId = accessChecker.getCurrentUserId();
         if (currentUserId.equals(id)) {
             return Result.error("不能删除自己");
         }
@@ -217,9 +219,9 @@ public class UserController {
 
     @PutMapping("/{id}/role")
     public Result<Void> assignRole(@PathVariable Long id, @RequestBody AssignRoleRequest request) {
-        checkAdminPermission();
+        accessChecker.requireAdmin();
 
-        Long currentUserId = getCurrentUserId();
+        Long currentUserId = accessChecker.getCurrentUserId();
         List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
         boolean isSuperAdmin = currentRoles.contains("SUPER_ADMIN");
 
@@ -251,9 +253,9 @@ public class UserController {
 
     @PostMapping("/{id}/reset-agent-key")
     public Result<String> resetAgentKey(@PathVariable Long id) {
-        checkUserManagePermission(id);
+        accessChecker.requireUserManagePermission(id);
 
-        Long currentUserId = getCurrentUserId();
+        Long currentUserId = accessChecker.getCurrentUserId();
         List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
         boolean isSuperAdmin = currentRoles.contains("SUPER_ADMIN");
 
@@ -288,41 +290,6 @@ public class UserController {
             userRole.setUserId(userId);
             userRole.setRoleId(role.getId());
             userRoleMapper.insert(userRole);
-        }
-    }
-
-    private Long getCurrentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        return (Long) authentication.getPrincipal();
-    }
-
-    private void checkAdminPermission() {
-        Long currentUserId = getCurrentUserId();
-        List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
-        if (!currentRoles.contains("SUPER_ADMIN") && !currentRoles.contains("GROUP_ADMIN")) {
-            throw new RuntimeException("无权执行此操作");
-        }
-    }
-
-    private void checkUserManagePermission(Long targetUserId) {
-        Long currentUserId = getCurrentUserId();
-        List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
-        boolean isSuperAdmin = currentRoles.contains("SUPER_ADMIN");
-        boolean isGroupAdmin = currentRoles.contains("GROUP_ADMIN");
-
-        if (!isSuperAdmin && !isGroupAdmin) {
-            throw new RuntimeException("无权管理用户");
-        }
-
-        if (isGroupAdmin && !isSuperAdmin) {
-            User currentUser = userService.getById(currentUserId);
-            User targetUser = userService.getById(targetUserId);
-            if (targetUser == null) {
-                throw new RuntimeException("目标用户不存在");
-            }
-            if (!currentUser.getGroupId().equals(targetUser.getGroupId())) {
-                throw new RuntimeException("只能管理本组用户");
-            }
         }
     }
 }

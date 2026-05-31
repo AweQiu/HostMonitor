@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ylh.backend.Common.BusinessException;
+import com.ylh.backend.Common.ForbiddenException;
 import com.ylh.backend.Dto.CreateNotificationRequest;
 import com.ylh.backend.Dto.NotificationVO;
 import com.ylh.backend.Entity.Group;
@@ -39,28 +41,18 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
     @Transactional
     public void sendNotification(CreateNotificationRequest request, Long senderId,
                                   String senderRole, Long senderGroupId) {
-        if (request.getTitle() == null || request.getTitle().isBlank()) {
-            throw new RuntimeException("通知标题不能为空");
-        }
-        if (request.getContent() == null || request.getContent().isBlank()) {
-            throw new RuntimeException("通知内容不能为空");
-        }
-        if (request.getSendType() == null) {
-            throw new RuntimeException("请选择发送范围");
-        }
-
         boolean isSuperAdmin = "SUPER_ADMIN".equals(senderRole);
         boolean isGroupAdmin = "GROUP_ADMIN".equals(senderRole);
 
         if (!isSuperAdmin && !isGroupAdmin) {
-            throw new RuntimeException("无权发送通知");
+            throw new ForbiddenException("无权发送通知");
         }
 
         List<Long> targetUserIds = new ArrayList<>();
 
         if (request.getSendType() == 1) {
             if (!isSuperAdmin) {
-                throw new RuntimeException("只有超级管理员可以发送全体通知");
+                throw new ForbiddenException("只有超级管理员可以发送全体通知");
             }
             List<User> allUsers = userMapper.selectList(
                     new LambdaQueryWrapper<User>().eq(User::getStatus, 1)
@@ -69,11 +61,11 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
         } else if (request.getSendType() == 2) {
             Long groupId = request.getTargetGroupId();
             if (groupId == null) {
-                throw new RuntimeException("请选择目标分组");
+                throw new BusinessException("请选择目标分组");
             }
             if (isGroupAdmin && !isSuperAdmin) {
                 if (!groupId.equals(senderGroupId)) {
-                    throw new RuntimeException("只能向管理的分组发送通知");
+                    throw new ForbiddenException("只能向管理的分组发送通知");
                 }
             }
             List<User> groupMembers = userMapper.selectList(
@@ -82,13 +74,13 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
             targetUserIds = groupMembers.stream().map(User::getId).collect(Collectors.toList());
         } else if (request.getSendType() == 3) {
             if (request.getTargetUserIds() == null || request.getTargetUserIds().isEmpty()) {
-                throw new RuntimeException("请选择目标用户");
+                throw new BusinessException("请选择目标用户");
             }
             if (isGroupAdmin && !isSuperAdmin) {
                 for (Long uid : request.getTargetUserIds()) {
                     User targetUser = userMapper.selectById(uid);
                     if (targetUser == null || !senderGroupId.equals(targetUser.getGroupId())) {
-                        throw new RuntimeException("只能向组内成员发送通知");
+                        throw new ForbiddenException("只能向组内成员发送通知");
                     }
                 }
             }
@@ -96,7 +88,7 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
         }
 
         if (targetUserIds.isEmpty()) {
-            throw new RuntimeException("没有目标用户");
+            throw new BusinessException("没有目标用户");
         }
 
         Notification notification = new Notification();

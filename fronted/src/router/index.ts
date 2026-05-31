@@ -50,12 +50,6 @@ const router = createRouter({
           meta: { requiresAuth: true, title: '屏幕监控' }
         },
         {
-          path: 'process',
-          name: 'process',
-          component: () => import('../views/ProcessManagementView.vue'),
-          meta: { requiresAuth: true, title: '进程管理' }
-        },
-        {
           path: 'alerts',
           name: 'alerts',
           component: () => import('../views/AlertsView.vue'),

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.ylh.backend.Dto.UserVO;
+import com.ylh.backend.Common.NotFoundException;
 import com.ylh.backend.Entity.Group;
 import com.ylh.backend.Entity.Role;
 import com.ylh.backend.Entity.User;
@@ -46,7 +47,7 @@ public class UserService extends ServiceImpl<UserMapper, User> {
     public String resetAgentKey(Long userId) {
         User user = getById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new NotFoundException("用户不存在");
         }
         String newKey = generateAgentKey();
         user.setAgentKey(newKey);

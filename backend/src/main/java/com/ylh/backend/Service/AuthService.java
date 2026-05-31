@@ -1,11 +1,12 @@
 package com.ylh.backend.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.ylh.backend.Entity.Role;
 import com.ylh.backend.Entity.UserRole;
 import com.ylh.backend.Mapper.RoleMapper;
 import com.ylh.backend.Mapper.UserRoleMapper;
+import com.ylh.backend.Common.BusinessException;
+import com.ylh.backend.Common.UnauthorizedException;
 import com.ylh.backend.Config.JwtUtil;
 import com.ylh.backend.Dto.AuthResponse;
 import com.ylh.backend.Dto.LoginRequest;
@@ -28,20 +29,24 @@ public class AuthService {
     private final RoleMapper roleMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final AlertSettingService alertSettingService;
 
     public AuthResponse login(LoginRequest request) {
         User user = userService.getByUsername(request.getUsername());
         if (user == null) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new UnauthorizedException("用户名或密码错误");
         }
         if (user.getStatus() != 1) {
-            throw new RuntimeException("账号已被禁用");
+            throw new UnauthorizedException("账号已被禁用");
         }
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new UnauthorizedException("用户名或密码错误");
         }
 
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername());
+        List<String> roles = buildUserDTO(user).getRoles();
+        int sessionTimeoutHours = alertSettingService.getInt("session_timeout_hours", 24);
+        long expirationMs = (long) sessionTimeoutHours * 3600 * 1000;
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), roles, expirationMs);
 
         AuthResponse response = new AuthResponse();
         response.setToken(token);
@@ -52,10 +57,10 @@ public class AuthService {
     @Transactional
     public void register(RegisterRequest request) {
         if (userService.existsByUsername(request.getUsername())) {
-            throw new RuntimeException("用户名已存在");
+            throw new BusinessException("用户名已存在");
         }
         if (userService.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("邮箱已被注册");
+            throw new BusinessException("邮箱已被注册");
         }
 
         User user = new User();

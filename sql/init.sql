@@ -32,6 +32,7 @@ CREATE TABLE `user` (
   UNIQUE KEY `uk_email` (`email`),
   UNIQUE KEY `uk_agent_key` (`agent_key`),
   KEY `idx_group_id` (`group_id`),
+  KEY `idx_group_status` (`group_id`, `status`),
   CONSTRAINT `fk_user_group` FOREIGN KEY (`group_id`) REFERENCES `group` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -127,6 +128,7 @@ CREATE TABLE `host_metric` (
   PRIMARY KEY (`id`),
   KEY `idx_host_id` (`host_id`),
   KEY `idx_collect_time` (`collect_time`),
+  KEY `idx_host_collect_range` (`host_id`, `collect_time`),
   CONSTRAINT `fk_metric_host` FOREIGN KEY (`host_id`) REFERENCES `host` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -168,7 +170,15 @@ INSERT INTO `alert_setting` (`setting_key`, `setting_value`, `description`) VALU
 ('cpu_threshold', '90', 'CPU使用率告警阈值(%)'),
 ('memory_threshold', '90', '内存使用率告警阈值(%)'),
 ('disk_threshold', '90', '磁盘使用率告警阈值(%)'),
-('alert_dedup_minutes', '30', '告警去重间隔(分钟)');
+('alert_dedup_minutes', '30', '告警去重间隔(分钟)'),
+('session_timeout_hours', '24', '会话超时时间(小时)'),
+('data_retention_days', '2', '数据保留天数'),
+('notification_retention_days', '30', '通知保留天数'),
+('email_enabled', 'false', '邮件通知开关'),
+('smtp_host', '', 'SMTP服务器'),
+('smtp_port', '465', 'SMTP端口'),
+('smtp_username', '', 'SMTP发件人地址'),
+('smtp_password', '', 'SMTP授权码');
 
 -- 进程规则表
 CREATE TABLE `process_rule` (
@@ -200,7 +210,8 @@ CREATE TABLE `alert_record` (
   KEY `idx_host_id` (`host_id`),
   KEY `idx_status` (`status`),
   KEY `idx_create_time` (`create_time`),
-  KEY `idx_host_type_process` (`host_id`, `alert_type`, `process_name`)
+  KEY `idx_host_type_process` (`host_id`, `alert_type`, `process_name`),
+  KEY `idx_alert_type_status` (`alert_type`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 通知表
@@ -217,7 +228,8 @@ CREATE TABLE `notification` (
   `send_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_sender_id` (`sender_id`),
-  KEY `idx_send_time` (`send_time`)
+  KEY `idx_send_time` (`send_time`),
+  KEY `idx_send_time_desc` (`send_time` DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 用户通知关系表

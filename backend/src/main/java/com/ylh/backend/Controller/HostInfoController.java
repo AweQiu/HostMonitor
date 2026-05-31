@@ -1,7 +1,9 @@
 package com.ylh.backend.Controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.ylh.backend.Common.PageResult;
 import com.ylh.backend.Common.Result;
+import com.ylh.backend.Config.AccessChecker;
 import com.ylh.backend.Dto.HostVO;
 import com.ylh.backend.Entity.HostInfo;
 import com.ylh.backend.Entity.User;
@@ -10,13 +12,9 @@ import com.ylh.backend.Service.HostInfoService;
 import com.ylh.backend.Service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -28,16 +26,17 @@ public class HostInfoController {
     private final HostInfoService hostInfoService;
     private final HostMetricMapper hostMetricMapper;
     private final UserService userService;
+    private final AccessChecker accessChecker;
 
     @GetMapping
-    public Result<Map<String, Object>> listHosts(
+    public Result<PageResult<HostVO>> listHosts(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer status) {
 
-        Long currentUserId = getCurrentUserId();
-        List<String> roles = userService.getUserRoleKeys(currentUserId);
+        Long currentUserId = accessChecker.getCurrentUserId();
+        List<String> roles = accessChecker.getCurrentUserRoles();
         boolean isSuperAdmin = roles.contains("SUPER_ADMIN");
         boolean isGroupAdmin = roles.contains("GROUP_ADMIN");
 
@@ -48,12 +47,7 @@ public class HostInfoController {
         } else if (isGroupAdmin) {
             User currentUser = userService.getById(currentUserId);
             if (currentUser.getGroupId() == null) {
-                Map<String, Object> data = new HashMap<>();
-                data.put("records", List.of());
-                data.put("total", 0);
-                data.put("page", page);
-                data.put("size", size);
-                return Result.success(data);
+                return Result.success(new PageResult<>(List.of(), 0, page, size));
             }
             List<User> groupMembers = userService.list(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
@@ -61,12 +55,7 @@ public class HostInfoController {
             );
             List<Long> memberIds = groupMembers.stream().map(User::getId).collect(Collectors.toList());
             if (memberIds.isEmpty()) {
-                Map<String, Object> data = new HashMap<>();
-                data.put("records", List.of());
-                data.put("total", 0);
-                data.put("page", page);
-                data.put("size", size);
-                return Result.success(data);
+                return Result.success(new PageResult<>(List.of(), 0, page, size));
             }
             pageResult = hostInfoService.pageListByUserIds(page, size, keyword, status, memberIds);
         } else {
@@ -74,14 +63,7 @@ public class HostInfoController {
         }
 
         List<HostVO> records = hostInfoService.toVOList(pageResult.getRecords());
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("records", records);
-        data.put("total", pageResult.getTotal());
-        data.put("page", pageResult.getCurrent());
-        data.put("size", pageResult.getSize());
-
-        return Result.success(data);
+        return Result.success(PageResult.of(pageResult, records));
     }
 
     @GetMapping("/{id}")
@@ -139,13 +121,13 @@ public class HostInfoController {
         );
 
         hostInfoService.removeById(id);
-        log.info("用户 {} 删除了主机 {} ({})", getCurrentUserId(), id, host.getHostname());
+        log.info("用户 {} 删除了主机 {} ({})", accessChecker.getCurrentUserId(), id, host.getHostname());
         return Result.success("删除成功", null);
     }
 
     private boolean checkHostAccess(Long hostId) {
-        Long currentUserId = getCurrentUserId();
-        List<String> roles = userService.getUserRoleKeys(currentUserId);
+        Long currentUserId = accessChecker.getCurrentUserId();
+        List<String> roles = accessChecker.getCurrentUserRoles();
         boolean isSuperAdmin = roles.contains("SUPER_ADMIN");
         boolean isGroupAdmin = roles.contains("GROUP_ADMIN");
 
@@ -167,10 +149,5 @@ public class HostInfoController {
         }
 
         return hostInfoService.isHostOwnedBy(hostId, currentUserId);
-    }
-
-    private Long getCurrentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        return (Long) authentication.getPrincipal();
     }
 }

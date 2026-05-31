@@ -1,16 +1,16 @@
 package com.ylh.backend.Controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.ylh.backend.Common.PageResult;
 import com.ylh.backend.Common.Result;
+import com.ylh.backend.Config.AccessChecker;
 import com.ylh.backend.Dto.CreateNotificationRequest;
 import com.ylh.backend.Dto.NotificationVO;
 import com.ylh.backend.Entity.User;
 import com.ylh.backend.Service.NotificationService;
-import com.ylh.backend.Service.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,13 +22,13 @@ import java.util.List;
 public class NotificationController {
 
     private final NotificationService notificationService;
-    private final UserService userService;
+    private final AccessChecker accessChecker;
 
     @PostMapping
-    public Result<Void> sendNotification(@RequestBody CreateNotificationRequest request) {
-        Long currentUserId = getCurrentUserId();
-        List<String> currentRoles = userService.getUserRoleKeys(currentUserId);
-        User currentUser = userService.getById(currentUserId);
+    public Result<Void> sendNotification(@Valid @RequestBody CreateNotificationRequest request) {
+        Long currentUserId = accessChecker.getCurrentUserId();
+        List<String> currentRoles = accessChecker.getCurrentUserRoles();
+        User currentUser = accessChecker.getCurrentUser();
 
         String senderRole = currentRoles.contains("SUPER_ADMIN") ? "SUPER_ADMIN" :
                 currentRoles.contains("GROUP_ADMIN") ? "GROUP_ADMIN" : "USER";
@@ -38,42 +38,38 @@ public class NotificationController {
     }
 
     @GetMapping
-    public Result<Page<NotificationVO>> listNotifications(
+    public Result<PageResult<NotificationVO>> listNotifications(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        Long userId = getCurrentUserId();
-        return Result.success(notificationService.getUserNotifications(userId, page, size));
+        Long userId = accessChecker.getCurrentUserId();
+        Page<NotificationVO> result = notificationService.getUserNotifications(userId, page, size);
+        return Result.success(PageResult.of(result));
     }
 
     @PutMapping("/{id}/read")
     public Result<Void> markAsRead(@PathVariable Long id) {
-        Long userId = getCurrentUserId();
+        Long userId = accessChecker.getCurrentUserId();
         notificationService.markAsRead(userId, id);
         return Result.success("已读", null);
     }
 
     @PutMapping("/read-all")
     public Result<Void> markAllAsRead() {
-        Long userId = getCurrentUserId();
+        Long userId = accessChecker.getCurrentUserId();
         notificationService.markAllAsRead(userId);
         return Result.success("全部已读", null);
     }
 
     @GetMapping("/unread-count")
     public Result<Long> getUnreadCount() {
-        Long userId = getCurrentUserId();
+        Long userId = accessChecker.getCurrentUserId();
         return Result.success(notificationService.getUnreadCount(userId));
     }
 
     @DeleteMapping("/{id}")
     public Result<Void> deleteNotification(@PathVariable Long id) {
-        Long userId = getCurrentUserId();
+        Long userId = accessChecker.getCurrentUserId();
         notificationService.deleteUserNotification(userId, id);
         return Result.success("删除成功", null);
-    }
-
-    private Long getCurrentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        return (Long) authentication.getPrincipal();
     }
 }

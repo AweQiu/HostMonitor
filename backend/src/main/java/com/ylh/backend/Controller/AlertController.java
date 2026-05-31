@@ -1,12 +1,12 @@
 package com.ylh.backend.Controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.ylh.backend.Common.PageResult;
 import com.ylh.backend.Dto.AlertVO;
 import com.ylh.backend.Common.Result;
+import com.ylh.backend.Config.AccessChecker;
 import com.ylh.backend.Service.AlertService;
-import com.ylh.backend.Service.UserService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,38 +17,33 @@ import java.util.List;
 public class AlertController {
 
     private final AlertService alertService;
-    private final UserService userService;
+    private final AccessChecker accessChecker;
 
     @GetMapping
-    public Result<Page<AlertVO>> list(
+    public Result<PageResult<AlertVO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String alertType,
             @RequestParam(required = false) Integer status) {
-        Long userId = getCurrentUserId();
-        List<String> roles = userService.getUserRoleKeys(userId);
+        Long userId = accessChecker.getCurrentUserId();
+        List<String> roles = accessChecker.getCurrentUserRoles();
         Page<AlertVO> result = alertService.pageAlerts(page, size, alertType, status, userId, roles);
-        return Result.success(result);
+        return Result.success(PageResult.of(result));
     }
 
     @PutMapping("/{id}/resolve")
     public Result<String> resolve(@PathVariable Long id) {
-        Long userId = getCurrentUserId();
-        List<String> roles = userService.getUserRoleKeys(userId);
+        Long userId = accessChecker.getCurrentUserId();
+        List<String> roles = accessChecker.getCurrentUserRoles();
         alertService.resolveAlert(id, userId, roles);
         return Result.success("告警已处理");
     }
 
     @GetMapping("/unresolved-count")
     public Result<Long> unresolvedCount() {
-        Long userId = getCurrentUserId();
-        List<String> roles = userService.getUserRoleKeys(userId);
+        Long userId = accessChecker.getCurrentUserId();
+        List<String> roles = accessChecker.getCurrentUserRoles();
         Long count = alertService.getUnresolvedCount(userId, roles);
         return Result.success(count);
-    }
-
-    private Long getCurrentUserId() {
-        Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        return (Long) authentication.getPrincipal();
     }
 }
