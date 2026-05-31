@@ -10,13 +10,19 @@ import java.util.Map;
 
 public final class ProcessDeltaCalculator {
 
-    private static final double METRIC_CHANGE_THRESHOLD = 1.0;
+    private static final double DEFAULT_THRESHOLD = 1.0;
 
     private ProcessDeltaCalculator() {
     }
 
     public static ProcessListDelta compute(Map<Integer, ProcessInfo> lastSnapshot,
                                            List<ProcessInfo> currentList, int seq) {
+        return compute(lastSnapshot, currentList, seq, DEFAULT_THRESHOLD);
+    }
+
+    public static ProcessListDelta compute(Map<Integer, ProcessInfo> lastSnapshot,
+                                           List<ProcessInfo> currentList, int seq,
+                                           double threshold) {
         Map<Integer, ProcessInfo> currentMap = new HashMap<>();
         for (ProcessInfo p : currentList) {
             currentMap.put(p.getPid(), p);
@@ -30,7 +36,7 @@ public final class ProcessDeltaCalculator {
             ProcessInfo last = lastSnapshot.get(current.getPid());
             if (last == null) {
                 added.add(current);
-            } else if (isSignificantlyChanged(last, current)) {
+            } else if (isSignificantlyChanged(last, current, threshold)) {
                 changed.add(current);
             }
         }
@@ -44,13 +50,13 @@ public final class ProcessDeltaCalculator {
         return new ProcessListDelta(seq, added, removed, changed);
     }
 
-    private static boolean isSignificantlyChanged(ProcessInfo last, ProcessInfo current) {
+    private static boolean isSignificantlyChanged(ProcessInfo last, ProcessInfo current, double threshold) {
         if (!strEq(last.getName(), current.getName())) return true;
         if (!strEq(last.getUser(), current.getUser())) return true;
         if (!strEq(last.getStatus(), current.getStatus())) return true;
         if (!strEq(last.getCommandLine(), current.getCommandLine())) return true;
-        if (Math.abs(last.getCpuUsage() - current.getCpuUsage()) >= METRIC_CHANGE_THRESHOLD) return true;
-        if (Math.abs(last.getMemoryUsage() - current.getMemoryUsage()) >= METRIC_CHANGE_THRESHOLD) return true;
+        if (Math.abs(last.getCpuUsage() - current.getCpuUsage()) >= threshold) return true;
+        if (Math.abs(last.getMemoryUsage() - current.getMemoryUsage()) >= threshold) return true;
         return false;
     }
 

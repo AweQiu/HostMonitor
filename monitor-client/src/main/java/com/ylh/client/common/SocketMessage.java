@@ -8,6 +8,7 @@ import com.google.gson.stream.JsonWriter;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 public class SocketMessage {
 
@@ -55,6 +56,31 @@ public class SocketMessage {
     public String getCommand() {
         CommandBody cmd = getBodyAs(CommandBody.class);
         return cmd != null ? cmd.command : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, String> getConfigMap() {
+        try {
+            return GSON.fromJson(body, Map.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, String> getCommandConfig() {
+        try {
+            Map<String, Object> map = GSON.fromJson(body, Map.class);
+            if (map != null && map.containsKey("config")) {
+                Object configObj = map.get("config");
+                if (configObj instanceof Map) {
+                    return (Map<String, String>) configObj;
+                }
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        return null;
     }
 
     public String getMessage() {

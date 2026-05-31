@@ -1,5 +1,6 @@
 package com.ylh.client.core;
 
+import com.ylh.client.common.RuntimeConfig;
 import com.ylh.client.common.SocketMessage;
 import com.ylh.client.models.ProcessInfo;
 import com.ylh.client.models.ProcessListDelta;
@@ -18,22 +19,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ProcessReporter {
 
     private final NetworkClient client;
-    private final long intervalMs;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger seq = new AtomicInteger(0);
     private final Map<Integer, ProcessInfo> lastSnapshot = new HashMap<>();
     private volatile boolean needFullSync = true;
     private Thread reporterThread;
 
-    public ProcessReporter(NetworkClient client, long intervalMs) {
+    public ProcessReporter(NetworkClient client) {
         this.client = client;
-        this.intervalMs = intervalMs;
     }
 
     public void start() {
         if (running.compareAndSet(false, true)) {
             reporterThread = new Thread(() -> {
-                System.out.println("Process reporter started (interval: " + intervalMs + "ms, mode: incremental)");
+                RuntimeConfig rc = RuntimeConfig.getInstance();
+                System.out.println("Process reporter started (interval: " + rc.getProcessIntervalMs() + "ms, mode: incremental, dynamic)");
                 try {
                     while (running.get()) {
                         List<ProcessInfo> processList = ProcessCollector.collectProcessList();
@@ -42,7 +42,7 @@ public class ProcessReporter {
                         } else {
                             sendDelta(processList);
                         }
-                        Thread.sleep(intervalMs);
+                        Thread.sleep(rc.getProcessIntervalMs());
                     }
                 } catch (IOException e) {
                     if (running.get()) {
@@ -73,7 +73,8 @@ public class ProcessReporter {
 
     private void sendDelta(List<ProcessInfo> processList) throws IOException {
         int currentSeq = seq.incrementAndGet();
-        ProcessListDelta delta = ProcessDeltaCalculator.compute(lastSnapshot, processList, currentSeq);
+        RuntimeConfig rc = RuntimeConfig.getInstance();
+        ProcessListDelta delta = ProcessDeltaCalculator.compute(lastSnapshot, processList, currentSeq, rc.getProcessCpuThreshold());
 
         Map<Integer, ProcessInfo> currentMap = new HashMap<>();
         for (ProcessInfo p : processList) {

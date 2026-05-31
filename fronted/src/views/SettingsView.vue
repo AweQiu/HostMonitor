@@ -29,6 +29,9 @@ const alertLoading = ref(false)
 const systemSettings = reactive<Record<string, string>>({})
 const systemLoading = ref(false)
 
+const clientSettings = reactive<Record<string, string>>({})
+const clientLoading = ref(false)
+
 async function loadAlertSettings() {
   try {
     const data = await request.get('/alert-settings')
@@ -54,6 +57,7 @@ async function loadSystemSettings() {
   try {
     const data = await request.get('/system-settings')
     Object.assign(systemSettings, data.data || {})
+    Object.assign(clientSettings, data.data || {})
   } catch {
     // ignore
   }
@@ -77,6 +81,26 @@ async function saveSystemSettings() {
     // handled by interceptor
   } finally {
     systemLoading.value = false
+  }
+}
+
+async function saveClientSettings() {
+  clientLoading.value = true
+  try {
+    await request.put('/system-settings', {
+      client_metric_interval_ms: String(clientSettings.client_metric_interval_ms || '5000'),
+      client_process_interval_ms: String(clientSettings.client_process_interval_ms || '15000'),
+      client_screen_fps: String(clientSettings.client_screen_fps || '5'),
+      client_screen_jpeg_quality: String(clientSettings.client_screen_jpeg_quality || '0.5'),
+      client_process_cpu_threshold: String(clientSettings.client_process_cpu_threshold || '1.0'),
+      client_heartbeat_timeout_ms: String(clientSettings.client_heartbeat_timeout_ms || '60000'),
+      client_offline_threshold_ms: String(clientSettings.client_offline_threshold_ms || '60000')
+    })
+    message.success('客户端设置已保存，在线客户端将自动更新配置')
+  } catch {
+    // handled by interceptor
+  } finally {
+    clientLoading.value = false
   }
 }
 
@@ -330,57 +354,54 @@ onMounted(() => {
 
       <a-tab-pane key="client" tab="客户端设置">
         <div class="settings-section">
-          <div class="section-notice">
+          <div class="section-notice success-notice">
             <BgColorsOutlined style="margin-right: 6px" />
-            以下配置修改后需在客户端 application.properties 中同步配置并重启生效
+            以下配置保存后将自动推送给在线客户端，无需重启即可生效；离线客户端下次连接时自动拉取最新配置
           </div>
 
           <a-form layout="vertical" class="settings-form">
             <a-form-item label="指标采集间隔">
-              <a-input-number v-model:value="settings.metricIntervalMs" :min="1000" :max="60000" :step="1000" style="max-width: 200px" />
+              <a-input-number :value="Number(clientSettings.client_metric_interval_ms || 5000)" :min="1000" :max="60000" :step="1000" style="max-width: 200px" @change="(v: number) => clientSettings.client_metric_interval_ms = String(v)" />
               <span class="form-unit">ms</span>
               <div class="form-hint">客户端上报 HOST_METRIC 的间隔时间</div>
             </a-form-item>
 
             <a-form-item label="进程采集间隔">
-              <a-input-number v-model:value="settings.processIntervalMs" :min="5000" :max="300000" :step="5000" style="max-width: 200px" />
+              <a-input-number :value="Number(clientSettings.client_process_interval_ms || 15000)" :min="5000" :max="300000" :step="5000" style="max-width: 200px" @change="(v: number) => clientSettings.client_process_interval_ms = String(v)" />
               <span class="form-unit">ms</span>
               <div class="form-hint">客户端上报 PROCESS_LIST 的间隔时间</div>
             </a-form-item>
 
             <a-form-item label="屏幕推流帧率">
-              <a-input-number v-model:value="settings.screenFps" :min="1" :max="30" style="max-width: 200px" />
+              <a-input-number :value="Number(clientSettings.client_screen_fps || 5)" :min="1" :max="30" style="max-width: 200px" @change="(v: number) => clientSettings.client_screen_fps = String(v)" />
               <span class="form-unit">FPS</span>
             </a-form-item>
 
             <a-form-item label="屏幕推流画质">
-              <a-input-number v-model:value="settings.screenJpegQuality" :min="0.1" :max="1.0" :step="0.1" style="max-width: 200px" />
+              <a-input-number :value="Number(clientSettings.client_screen_jpeg_quality || 0.5)" :min="0.1" :max="1.0" :step="0.1" style="max-width: 200px" @change="(v: number) => clientSettings.client_screen_jpeg_quality = String(v)" />
               <div class="form-hint">JPEG 压缩质量，0.1 最低画质最小体积，1.0 最高画质最大体积</div>
             </a-form-item>
 
             <a-form-item label="进程 CPU 变化阈值">
-              <a-input-number v-model:value="settings.processCpuThreshold" :min="0.1" :max="50" :step="0.5" style="max-width: 200px" />
+              <a-input-number :value="Number(clientSettings.client_process_cpu_threshold || 1.0)" :min="0.1" :max="50" :step="0.5" style="max-width: 200px" @change="(v: number) => clientSettings.client_process_cpu_threshold = String(v)" />
               <span class="form-unit">%</span>
               <div class="form-hint">增量上报时 CPU 使用率变化超过此阈值才上报</div>
             </a-form-item>
 
             <a-form-item label="心跳超时时间">
-              <a-input-number v-model:value="settings.heartbeatTimeout" :min="10" :max="600" style="max-width: 200px" />
+              <a-input-number :value="Number(clientSettings.client_heartbeat_timeout_ms || 60000) / 1000" :min="10" :max="600" style="max-width: 200px" @change="(v: number) => clientSettings.client_heartbeat_timeout_ms = String(v * 1000)" />
               <span class="form-unit">秒</span>
               <div class="form-hint">服务端多久未收到心跳则断开客户端连接</div>
             </a-form-item>
 
             <a-form-item label="离线判定阈值">
-              <a-input-number v-model:value="settings.offlineThreshold" :min="10" :max="600" style="max-width: 200px" />
+              <a-input-number :value="Number(clientSettings.client_offline_threshold_ms || 60000) / 1000" :min="10" :max="600" style="max-width: 200px" @change="(v: number) => clientSettings.client_offline_threshold_ms = String(v * 1000)" />
               <span class="form-unit">秒</span>
               <div class="form-hint">超过该时间未收到心跳，则判定主机离线</div>
             </a-form-item>
 
             <a-form-item>
-              <a-space>
-                <a-button type="primary" @click="handleSave">保存设置</a-button>
-                <a-button @click="handleReset">恢复默认</a-button>
-              </a-space>
+              <a-button type="primary" :loading="clientLoading" @click="saveClientSettings">保存设置</a-button>
             </a-form-item>
           </a-form>
         </div>
@@ -639,6 +660,12 @@ onMounted(() => {
   color: #0960bd;
   display: flex;
   align-items: center;
+}
+
+.success-notice {
+  background: #f6ffed;
+  border-color: #b7eb8f;
+  color: #52c41a;
 }
 
 .client-config-table {

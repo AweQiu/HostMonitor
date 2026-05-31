@@ -15,8 +15,10 @@ public final class MessageConstants {
     public static final String TYPE_OK = "OK";
     public static final String TYPE_ERROR = "ERROR";
     public static final String TYPE_CMD = "CMD";
+    public static final String TYPE_CONFIG = "CONFIG";
 
     public static final String CMD_SCREEN_START = "SCREEN_START";
     public static final String CMD_SCREEN_STOP = "SCREEN_STOP";
     public static final String CMD_PROCESS_RESYNC = "PROCESS_RESYNC";
+    public static final String CMD_CONFIG_UPDATE = "CONFIG_UPDATE";
 }

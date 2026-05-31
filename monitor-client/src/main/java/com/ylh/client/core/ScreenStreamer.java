@@ -1,50 +1,35 @@
 package com.ylh.client.core;
 
+import com.ylh.client.common.RuntimeConfig;
 import com.ylh.client.network.UdpSender;
 import com.ylh.client.utils.ScreenCapture;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * 屏幕截图流发送器
- * <p>
- * 在独立线程中按指定帧率截取屏幕，通过 UDP 发送给服务器。
- * 通过 {@link #start()} 启动截图流，{@link #stop()} 停止。
- * </p>
- */
 public class ScreenStreamer {
 
     private final UdpSender udpSender;
-    private final int fps;
-    private final float quality;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread streamThread;
 
     public ScreenStreamer(UdpSender udpSender, int fps, float quality) {
         this.udpSender = udpSender;
-        this.fps = fps;
-        this.quality = quality;
     }
 
-    /**
-     * 启动屏幕截图流
-     * <p>
-     * 在守护线程中按指定帧率截屏并通过 UDP 发送。
-     * 如果已在运行则不会重复启动。
-     * </p>
-     */
     public void start() {
         if (running.compareAndSet(false, true)) {
             streamThread = new Thread(() -> {
+                RuntimeConfig rc = RuntimeConfig.getInstance();
                 try {
                     udpSender.connect();
-                    System.out.println("Screen streaming started (" + fps + " fps, quality " + quality + ")");
+                    System.out.println("Screen streaming started (dynamic fps/quality from RuntimeConfig)");
                     System.out.println("Screen resolution: " + ScreenCapture.getScreenWidth() + "x" + ScreenCapture.getScreenHeight());
 
-                    long frameInterval = 1000 / fps;
-
                     while (running.get()) {
+                        int fps = rc.getScreenFps();
+                        float quality = rc.getScreenJpegQuality();
+                        long frameInterval = fps > 0 ? 1000 / fps : 200;
                         long startTime = System.currentTimeMillis();
 
                         byte[] frame = ScreenCapture.captureScreen(quality);
@@ -74,9 +59,6 @@ public class ScreenStreamer {
         }
     }
 
-    /**
-     * 停止屏幕截图流
-     */
     public void stop() {
         running.set(false);
         if (streamThread != null) {

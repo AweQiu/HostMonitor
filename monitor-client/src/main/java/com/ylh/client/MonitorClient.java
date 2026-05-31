@@ -1,6 +1,7 @@
 package com.ylh.client;
 
 import com.ylh.client.common.MessageConstants;
+import com.ylh.client.common.RuntimeConfig;
 import com.ylh.client.common.SocketMessage;
 import com.ylh.client.core.MetricReporter;
 import com.ylh.client.core.ProcessReporter;
@@ -10,6 +11,7 @@ import com.ylh.client.network.UdpSender;
 import com.ylh.client.utils.ConfigUtil;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.Properties;
 
 public class MonitorClient {
@@ -20,8 +22,6 @@ public class MonitorClient {
     private ScreenStreamer screenStreamer;
     private UdpSender udpSender;
     private boolean screenEnabled;
-    private int screenFps;
-    private float jpegQuality;
 
     public void start() {
         Properties props = ConfigUtil.loadProperties("application.properties");
@@ -32,11 +32,10 @@ public class MonitorClient {
             return;
         }
 
+        RuntimeConfig runtimeConfig = RuntimeConfig.getInstance();
+        runtimeConfig.initFromProperties(props);
+
         screenEnabled = Boolean.parseBoolean(props.getProperty("screen.enabled", "true"));
-        long metricInterval = Long.parseLong(props.getProperty("metric.interval.ms", "5000"));
-        long processInterval = Long.parseLong(props.getProperty("process.interval.ms", "15000"));
-        screenFps = Integer.parseInt(props.getProperty("screen.fps", "5"));
-        jpegQuality = Float.parseFloat(props.getProperty("screen.jpeg.quality", "0.5"));
 
         client = new NetworkClient();
 
@@ -53,17 +52,22 @@ public class MonitorClient {
 
             client.sendHostInfo();
 
-            metricReporter = new MetricReporter(client, metricInterval);
+            metricReporter = new MetricReporter(client);
             metricReporter.start();
 
-            processReporter = new ProcessReporter(client, processInterval);
+            processReporter = new ProcessReporter(client);
             processReporter.start();
 
             if (screenEnabled) {
                 udpSender = new UdpSender();
 
                 client.setMessageHandler(msg -> {
-                    if (MessageConstants.TYPE_CMD.equals(msg.getType())) {
+                    if (MessageConstants.TYPE_CONFIG.equals(msg.getType())) {
+                        Map<String, String> config = msg.getConfigMap();
+                        if (config != null) {
+                            runtimeConfig.applyServerConfig(config);
+                        }
+                    } else if (MessageConstants.TYPE_CMD.equals(msg.getType())) {
                         String command = msg.getCommand();
                         System.out.println("Received command: " + command);
                         if (MessageConstants.CMD_SCREEN_START.equals(command)) {
@@ -73,6 +77,11 @@ public class MonitorClient {
                         } else if (MessageConstants.CMD_PROCESS_RESYNC.equals(command)) {
                             if (processReporter != null) {
                                 processReporter.requestResync();
+                            }
+                        } else if (MessageConstants.CMD_CONFIG_UPDATE.equals(command)) {
+                            Map<String, String> config = msg.getCommandConfig();
+                            if (config != null) {
+                                runtimeConfig.applyServerConfig(config);
                             }
                         }
                     }
@@ -96,7 +105,8 @@ public class MonitorClient {
         if (screenStreamer != null && screenStreamer.isRunning()) {
             return;
         }
-        screenStreamer = new ScreenStreamer(udpSender, screenFps, jpegQuality);
+        RuntimeConfig rc = RuntimeConfig.getInstance();
+        screenStreamer = new ScreenStreamer(udpSender, rc.getScreenFps(), rc.getScreenJpegQuality());
         screenStreamer.start();
     }
 

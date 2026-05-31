@@ -2,6 +2,8 @@ package com.ylh.backend.Socket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Map;
+
 public class SocketMessage {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -86,6 +88,17 @@ public class SocketMessage {
 
     public static SocketMessage processResync() {
         return command(MessageConstants.CMD_PROCESS_RESYNC);
+    }
+
+    public static SocketMessage config(Map<String, String> config) {
+        return wrap(MessageConstants.TYPE_CONFIG, config);
+    }
+
+    public static SocketMessage configUpdate(Map<String, String> config) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("command", MessageConstants.CMD_CONFIG_UPDATE);
+        body.put("config", config);
+        return wrap(MessageConstants.TYPE_CMD, body);
     }
 
     private static SocketMessage wrap(String type, Object data) {

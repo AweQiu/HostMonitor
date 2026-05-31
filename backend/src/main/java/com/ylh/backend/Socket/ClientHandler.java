@@ -7,6 +7,7 @@ import com.ylh.backend.Entity.HostProcess;
 import com.ylh.backend.Entity.User;
 import com.ylh.backend.Mapper.HostMetricMapper;
 import com.ylh.backend.Service.AlertService;
+import com.ylh.backend.Service.AlertSettingService;
 import com.ylh.backend.Service.HostInfoService;
 import com.ylh.backend.Service.HostProcessService;
 import com.ylh.backend.Service.UserService;
@@ -43,6 +44,7 @@ public class ClientHandler implements Runnable {
     private final HostMetricMapper hostMetricMapper;
     private final HostProcessService hostProcessService;
     private final AlertService alertService;
+    private final AlertSettingService alertSettingService;
     private final SocketServer socketServer;
 
     private State state = State.UNAUTHENTICATED;
@@ -62,7 +64,8 @@ public class ClientHandler implements Runnable {
     public ClientHandler(Socket clientSocket, long connectionId,
                          UserService userService, HostInfoService hostInfoService,
                          HostMetricMapper hostMetricMapper, HostProcessService hostProcessService,
-                         AlertService alertService, SocketServer socketServer) {
+                         AlertService alertService, AlertSettingService alertSettingService,
+                         SocketServer socketServer) {
         this.clientSocket = clientSocket;
         this.connectionId = connectionId;
         this.userService = userService;
@@ -70,6 +73,7 @@ public class ClientHandler implements Runnable {
         this.hostMetricMapper = hostMetricMapper;
         this.hostProcessService = hostProcessService;
         this.alertService = alertService;
+        this.alertSettingService = alertSettingService;
         this.socketServer = socketServer;
     }
 
@@ -209,6 +213,8 @@ public class ClientHandler implements Runnable {
 
         log.info("[#{}] Authenticated as user {} ({})", connectionId, authenticatedUserId, authenticatedUsername);
         sendMessage(outputStream, SocketMessage.ok("Authenticated"));
+
+        sendClientConfig(outputStream);
 
         socketServer.notifyClientConnected(authenticatedUserId);
     }
@@ -416,6 +422,38 @@ public class ClientHandler implements Runnable {
     private void sendMessage(OutputStream outputStream, SocketMessage msg) throws IOException {
         outputStream.write(msg.serialize().getBytes(StandardCharsets.UTF_8));
         outputStream.flush();
+    }
+
+    private void sendClientConfig(OutputStream outputStream) throws IOException {
+        Map<String, String> clientConfig = new HashMap<>();
+        for (String key : MessageConstants.CLIENT_CONFIG_KEYS) {
+            String value = alertSettingService.get(key);
+            if (value != null) {
+                clientConfig.put(key, value);
+            }
+        }
+        if (!clientConfig.isEmpty()) {
+            sendMessage(outputStream, SocketMessage.config(clientConfig));
+            log.info("[#{}] Sent client config: {} keys", connectionId, clientConfig.size());
+        }
+    }
+
+    public void sendConfigMessage(Map<String, String> config) {
+        OutputStream os = clientOutputStream;
+        if (os == null) {
+            log.warn("[#{}] Cannot send config, no output stream", connectionId);
+            return;
+        }
+        try {
+            synchronized (os) {
+                SocketMessage msg = SocketMessage.configUpdate(config);
+                os.write(msg.serialize().getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+            log.info("[#{}] Sent config update: {} keys", connectionId, config.size());
+        } catch (IOException e) {
+            log.warn("[#{}] Failed to send config update: {}", connectionId, e.getMessage());
+        }
     }
 
     public long getLastActiveTime() {

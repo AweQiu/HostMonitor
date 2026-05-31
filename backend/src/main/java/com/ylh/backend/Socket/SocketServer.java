@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ylh.backend.Entity.HostInfo;
 import com.ylh.backend.Mapper.HostMetricMapper;
 import com.ylh.backend.Service.AlertService;
+import com.ylh.backend.Service.AlertSettingService;
 import com.ylh.backend.Service.HostInfoService;
 import com.ylh.backend.Service.HostProcessService;
 import com.ylh.backend.Service.UserService;
@@ -18,6 +19,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -30,7 +32,7 @@ public class SocketServer {
     private static final Logger log = LoggerFactory.getLogger(SocketServer.class);
     private static final int MAX_THREADS = 50;
     private static final long HEARTBEAT_CHECK_INTERVAL_MS = 30_000;
-    private static final long HEARTBEAT_TIMEOUT_MS = 60_000;
+    private static final long DEFAULT_HEARTBEAT_TIMEOUT_MS = 60_000;
 
     @Value("${socket.port:10801}")
     private int port;
@@ -40,6 +42,7 @@ public class SocketServer {
     private final HostMetricMapper hostMetricMapper;
     private final HostProcessService hostProcessService;
     private final AlertService alertService;
+    private final AlertSettingService alertSettingService;
     private final ScreenStreamManager screenStreamManager;
 
     private ServerSocket serverSocket;
@@ -51,12 +54,14 @@ public class SocketServer {
 
     public SocketServer(UserService userService, HostInfoService hostInfoService,
                         HostMetricMapper hostMetricMapper, HostProcessService hostProcessService,
-                        AlertService alertService, ScreenStreamManager screenStreamManager) {
+                        AlertService alertService, AlertSettingService alertSettingService,
+                        ScreenStreamManager screenStreamManager) {
         this.userService = userService;
         this.hostInfoService = hostInfoService;
         this.hostMetricMapper = hostMetricMapper;
         this.hostProcessService = hostProcessService;
         this.alertService = alertService;
+        this.alertSettingService = alertSettingService;
         this.screenStreamManager = screenStreamManager;
     }
 
@@ -98,7 +103,8 @@ public class SocketServer {
                     long connectionId = connectionIdGenerator.incrementAndGet();
                     ClientHandler handler = new ClientHandler(
                             clientSocket, connectionId, userService, hostInfoService,
-                            hostMetricMapper, hostProcessService, alertService, this
+                            hostMetricMapper, hostProcessService, alertService,
+                            alertSettingService, this
                     );
                     clients.put(connectionId, handler);
                     log.info("New connection #{} from {}, total clients: {}",
@@ -131,10 +137,11 @@ public class SocketServer {
             }
 
             long now = System.currentTimeMillis();
+            long heartbeatTimeoutMs = alertSettingService.getLong("client_heartbeat_timeout_ms", DEFAULT_HEARTBEAT_TIMEOUT_MS);
             for (var entry : clients.entrySet()) {
                 ClientHandler handler = entry.getValue();
                 long lastActive = handler.getLastActiveTime();
-                if (now - lastActive > HEARTBEAT_TIMEOUT_MS) {
+                if (now - lastActive > heartbeatTimeoutMs) {
                     log.warn("Client #{} heartbeat timeout (last active {}ms ago), closing connection",
                             entry.getKey(), now - lastActive);
                     handler.closeQuietly();
@@ -259,5 +266,27 @@ public class SocketServer {
         }
         handler.sendCommand(command);
         log.info("Sent command '{}' to user {} via connection #{}", command, userId, connId);
+    }
+
+    public void pushConfigToAllClients(Map<String, String> config) {
+        if (config == null || config.isEmpty()) return;
+        int count = 0;
+        for (ClientHandler handler : clients.values()) {
+            if (handler.isAuthenticated()) {
+                handler.sendConfigMessage(config);
+                count++;
+            }
+        }
+        log.info("Pushed config update to {} online clients", count);
+    }
+
+    public void pushConfigToUser(Long userId, Map<String, String> config) {
+        if (userId == null || config == null || config.isEmpty()) return;
+        Long connId = userConnectionMap.get(userId);
+        if (connId == null) return;
+        ClientHandler handler = clients.get(connId);
+        if (handler != null && handler.isAuthenticated()) {
+            handler.sendConfigMessage(config);
+        }
     }
 }
