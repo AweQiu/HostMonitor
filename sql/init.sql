@@ -178,7 +178,27 @@ INSERT INTO `alert_setting` (`setting_key`, `setting_value`, `description`) VALU
 ('smtp_host', '', 'SMTP服务器'),
 ('smtp_port', '465', 'SMTP端口'),
 ('smtp_username', '', 'SMTP发件人地址'),
-('smtp_password', '', 'SMTP授权码');
+('smtp_password', '', 'SMTP授权码'),
+('client_metric_interval_ms', '5000', '客户端指标采集间隔（毫秒）'),
+('client_process_interval_ms', '15000', '客户端进程采集间隔（毫秒）'),
+('client_screen_fps', '5', '客户端屏幕推流帧率'),
+('client_screen_jpeg_quality', '0.5', '客户端屏幕推流JPEG压缩质量'),
+('client_process_cpu_threshold', '1.0', '客户端进程CPU变化上报阈值（百分比）'),
+('client_heartbeat_timeout_ms', '60000', '客户端心跳超时时间（毫秒）'),
+('client_offline_threshold_ms', '60000', '客户端离线判定阈值（毫秒）');
+
+-- 组级别设置覆盖表
+CREATE TABLE `group_setting` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `group_id` BIGINT NOT NULL COMMENT '分组ID',
+  `setting_key` VARCHAR(100) NOT NULL COMMENT '设置键',
+  `setting_value` VARCHAR(500) DEFAULT NULL COMMENT '设置值',
+  `description` VARCHAR(200) DEFAULT NULL COMMENT '描述',
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_group_key` (`group_id`, `setting_key`),
+  KEY `idx_group_id` (`group_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='组级别设置覆盖表';
 
 -- 进程规则表
 CREATE TABLE `process_rule` (

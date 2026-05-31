@@ -26,6 +26,7 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
     private static final long DEDUP_MINUTES = 30;
 
     private final AlertSettingService alertSettingService;
+    private final GroupSettingService groupSettingService;
     private final ProcessRuleService processRuleService;
     private final NotificationService notificationService;
     private final HostInfoService hostInfoService;
@@ -35,8 +36,6 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
     @Transactional
     public void checkProcessAlerts(Long hostId, Map<Integer, HostProcess> processSnapshot) {
-        if (!alertSettingService.getBoolean("process_alert_enabled", true)) return;
-
         HostInfo host = hostInfoService.getById(hostId);
         if (host == null) return;
 
@@ -44,6 +43,8 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
         if (hostUser == null || hostUser.getGroupId() == null) return;
 
         Long groupId = hostUser.getGroupId();
+
+        if (!groupSettingService.getEffective(groupId, "process_alert_enabled", "true").equals("true")) return;
 
         List<ProcessRule> blacklist = processRuleService.getBlacklistByGroupId(groupId);
         List<ProcessRule> whitelist = processRuleService.getWhitelistByGroupId(groupId);
@@ -70,8 +71,6 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
     @Transactional
     public void checkPerformanceAlerts(Long hostId, HostMetric metric) {
-        if (!alertSettingService.getBoolean("performance_alert_enabled", true)) return;
-
         HostInfo host = hostInfoService.getById(hostId);
         if (host == null) return;
 
@@ -80,9 +79,11 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
         Long groupId = hostUser.getGroupId();
 
-        double cpuThreshold = alertSettingService.getDouble("cpu_threshold", 90);
-        double memoryThreshold = alertSettingService.getDouble("memory_threshold", 90);
-        double diskThreshold = alertSettingService.getDouble("disk_threshold", 90);
+        if (!groupSettingService.getEffective(groupId, "performance_alert_enabled", "true").equals("true")) return;
+
+        double cpuThreshold = groupSettingService.getEffectiveDouble(groupId, "cpu_threshold", 90);
+        double memoryThreshold = groupSettingService.getEffectiveDouble(groupId, "memory_threshold", 90);
+        double diskThreshold = groupSettingService.getEffectiveDouble(groupId, "disk_threshold", 90);
 
         if (metric.getCpuUsage() != null
                 && metric.getCpuUsage().doubleValue() > cpuThreshold) {
@@ -105,7 +106,7 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
     private void createPerformanceAlertIfNotDuplicate(Long hostId, String alertType, String metricName,
                                                        HostInfo host, User hostUser, Long groupId, String detail) {
-        int dedupMinutes = alertSettingService.getInt("alert_dedup_minutes", 30);
+        int dedupMinutes = (int) groupSettingService.getEffectiveLong(groupId, "alert_dedup_minutes", 30);
         LocalDateTime cutoff = LocalDateTime.now().minusMinutes(dedupMinutes);
         long existing = count(new LambdaQueryWrapper<AlertRecord>()
                 .eq(AlertRecord::getHostId, hostId)
@@ -161,7 +162,7 @@ public class AlertService extends ServiceImpl<AlertRecordMapper, AlertRecord> {
 
     private void createAlertIfNotDuplicate(Long hostId, String alertType, String processName,
                                             Long ruleId, HostInfo host, User hostUser, Long groupId) {
-        int dedupMinutes = alertSettingService.getInt("alert_dedup_minutes", 30);
+        int dedupMinutes = (int) groupSettingService.getEffectiveLong(groupId, "alert_dedup_minutes", 30);
         LocalDateTime cutoff = LocalDateTime.now().minusMinutes(dedupMinutes);
         long existing = count(new LambdaQueryWrapper<AlertRecord>()
                 .eq(AlertRecord::getHostId, hostId)

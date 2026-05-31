@@ -32,12 +32,13 @@ let unreadTimer: ReturnType<typeof setInterval> | null = null
 
 const allMenuItems = [
   { key: 'dashboard', icon: () => h(DashboardOutlined), label: '仪表盘', path: '/dashboard', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
-  { key: 'hosts', icon: () => h(DesktopOutlined), label: '主机管理', path: '/hosts', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
+  { key: 'hosts', icon: () => h(DesktopOutlined), label: '主机管理', path: '/hosts', roles: ['SUPER_ADMIN', 'GROUP_ADMIN'] },
+  { key: 'hostDetail', icon: () => h(DesktopOutlined), label: '主机详情', path: '/hosts', roles: ['USER'] },
   { key: 'alerts', icon: () => h(AlertOutlined), label: '告警中心', path: '/alerts', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
   { key: 'users', icon: () => h(TeamOutlined), label: '用户管理', path: '/users', roles: ['SUPER_ADMIN', 'GROUP_ADMIN'] },
   { key: 'groups', icon: () => h(GroupOutlined), label: '组织管理', path: '/groups', roles: ['SUPER_ADMIN'] },
   { key: 'notifications', icon: () => h(BellOutlined), label: '通知管理', path: '/notifications', roles: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
-  { key: 'settings', icon: () => h(SettingOutlined), label: '系统设置', path: '/settings', roles: ['SUPER_ADMIN'] }
+  { key: 'settings', icon: () => h(SettingOutlined), label: '系统设置', path: '/settings', roles: ['SUPER_ADMIN', 'GROUP_ADMIN'] }
 ]
 
 const menuItems = computed(() => {

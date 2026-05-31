@@ -8,6 +8,7 @@ import com.ylh.backend.Entity.User;
 import com.ylh.backend.Mapper.HostMetricMapper;
 import com.ylh.backend.Service.AlertService;
 import com.ylh.backend.Service.AlertSettingService;
+import com.ylh.backend.Service.GroupSettingService;
 import com.ylh.backend.Service.HostInfoService;
 import com.ylh.backend.Service.HostProcessService;
 import com.ylh.backend.Service.UserService;
@@ -45,6 +46,7 @@ public class ClientHandler implements Runnable {
     private final HostProcessService hostProcessService;
     private final AlertService alertService;
     private final AlertSettingService alertSettingService;
+    private final GroupSettingService groupSettingService;
     private final SocketServer socketServer;
 
     private State state = State.UNAUTHENTICATED;
@@ -65,7 +67,7 @@ public class ClientHandler implements Runnable {
                          UserService userService, HostInfoService hostInfoService,
                          HostMetricMapper hostMetricMapper, HostProcessService hostProcessService,
                          AlertService alertService, AlertSettingService alertSettingService,
-                         SocketServer socketServer) {
+                         GroupSettingService groupSettingService, SocketServer socketServer) {
         this.clientSocket = clientSocket;
         this.connectionId = connectionId;
         this.userService = userService;
@@ -74,6 +76,7 @@ public class ClientHandler implements Runnable {
         this.hostProcessService = hostProcessService;
         this.alertService = alertService;
         this.alertSettingService = alertSettingService;
+        this.groupSettingService = groupSettingService;
         this.socketServer = socketServer;
     }
 
@@ -426,15 +429,20 @@ public class ClientHandler implements Runnable {
 
     private void sendClientConfig(OutputStream outputStream) throws IOException {
         Map<String, String> clientConfig = new HashMap<>();
+        Long groupId = null;
+        if (authenticatedUserId != null) {
+            User user = userService.getById(authenticatedUserId);
+            if (user != null) groupId = user.getGroupId();
+        }
         for (String key : MessageConstants.CLIENT_CONFIG_KEYS) {
-            String value = alertSettingService.get(key);
+            String value = groupSettingService.getEffective(groupId, key, null);
             if (value != null) {
                 clientConfig.put(key, value);
             }
         }
         if (!clientConfig.isEmpty()) {
             sendMessage(outputStream, SocketMessage.config(clientConfig));
-            log.info("[#{}] Sent client config: {} keys", connectionId, clientConfig.size());
+            log.info("[#{}] Sent client config: {} keys (groupId={})", connectionId, clientConfig.size(), groupId);
         }
     }
 

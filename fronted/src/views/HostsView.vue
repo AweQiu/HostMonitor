@@ -35,6 +35,11 @@ const isAdmin = computed(() => {
   return roles.includes('SUPER_ADMIN') || roles.includes('GROUP_ADMIN')
 })
 
+const isUser = computed(() => {
+  const roles = userStore.userInfo?.roles || []
+  return !roles.includes('SUPER_ADMIN') && !roles.includes('GROUP_ADMIN')
+})
+
 const columns = [
   { title: '主机名', dataIndex: 'hostname', key: 'hostname', width: 140 },
   { title: 'IP 地址', dataIndex: 'ipAddress', key: 'ipAddress', width: 140 },
@@ -67,6 +72,25 @@ async function fetchHosts() {
     const data = await request.get('/hosts', { params })
     hostData.value = data.data.records
     total.value = data.data.total
+
+    if (isUser.value && hostData.value.length === 1) {
+      router.replace({
+        name: 'hostDetail',
+        params: { hostId: hostData.value[0].id },
+        query: { name: hostData.value[0].hostname }
+      })
+      return
+    }
+
+    if (isUser.value && hostData.value.length > 1) {
+      router.replace({
+        name: 'hostDetail',
+        params: { hostId: hostData.value[0].id },
+        query: { name: hostData.value[0].hostname }
+      })
+      return
+    }
+
     applySort()
   } catch {
     // error handled by interceptor

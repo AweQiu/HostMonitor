@@ -19,6 +19,11 @@ const isAdmin = computed(() => {
   return roles.includes('SUPER_ADMIN') || roles.includes('GROUP_ADMIN')
 })
 
+const isSuperAdmin = computed(() => {
+  const roles = userStore.userInfo?.roles || []
+  return roles.includes('SUPER_ADMIN')
+})
+
 const activeTab = ref('general')
 
 const settings = reactive<AppSettings>(getSettings())
@@ -34,8 +39,16 @@ const clientLoading = ref(false)
 
 async function loadAlertSettings() {
   try {
-    const data = await request.get('/alert-settings')
-    Object.assign(alertSettings, data.data || {})
+    if (isSuperAdmin.value) {
+      const data = await request.get('/alert-settings')
+      Object.assign(alertSettings, data.data || {})
+    } else {
+      const groupId = userStore.userInfo?.groupId
+      if (groupId) {
+        const data = await request.get(`/group-settings/${groupId}`)
+        Object.assign(alertSettings, data.data || {})
+      }
+    }
   } catch {
     // ignore
   }
@@ -44,7 +57,14 @@ async function loadAlertSettings() {
 async function saveAlertSettings() {
   alertLoading.value = true
   try {
-    await request.put('/alert-settings', alertSettings)
+    if (isSuperAdmin.value) {
+      await request.put('/alert-settings', alertSettings)
+    } else {
+      const groupId = userStore.userInfo?.groupId
+      if (groupId) {
+        await request.put(`/group-settings/${groupId}`, alertSettings)
+      }
+    }
     message.success('告警设置已保存')
   } catch {
     // handled by interceptor
@@ -87,7 +107,7 @@ async function saveSystemSettings() {
 async function saveClientSettings() {
   clientLoading.value = true
   try {
-    await request.put('/system-settings', {
+    const payload = {
       client_metric_interval_ms: String(clientSettings.client_metric_interval_ms || '5000'),
       client_process_interval_ms: String(clientSettings.client_process_interval_ms || '15000'),
       client_screen_fps: String(clientSettings.client_screen_fps || '5'),
@@ -95,7 +115,15 @@ async function saveClientSettings() {
       client_process_cpu_threshold: String(clientSettings.client_process_cpu_threshold || '1.0'),
       client_heartbeat_timeout_ms: String(clientSettings.client_heartbeat_timeout_ms || '60000'),
       client_offline_threshold_ms: String(clientSettings.client_offline_threshold_ms || '60000')
-    })
+    }
+    if (isSuperAdmin.value) {
+      await request.put('/system-settings', payload)
+    } else {
+      const groupId = userStore.userInfo?.groupId
+      if (groupId) {
+        await request.put(`/group-settings/${groupId}`, payload)
+      }
+    }
     message.success('客户端设置已保存，在线客户端将自动更新配置')
   } catch {
     // handled by interceptor
@@ -279,7 +307,7 @@ onMounted(() => {
 <template>
   <div class="settings-page">
     <a-tabs v-model:activeKey="activeTab" class="settings-tabs">
-      <a-tab-pane key="general" tab="常规设置">
+      <a-tab-pane v-if="isSuperAdmin" key="general" tab="常规设置">
         <div class="settings-section">
           <a-form layout="vertical" class="settings-form">
             <a-form-item label="系统名称">
@@ -407,7 +435,7 @@ onMounted(() => {
         </div>
       </a-tab-pane>
 
-      <a-tab-pane key="notification" tab="通知设置">
+      <a-tab-pane v-if="isSuperAdmin" key="notification" tab="通知设置">
         <div class="settings-section">
           <a-form layout="vertical" class="settings-form">
             <a-form-item label="通知保留天数">

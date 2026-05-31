@@ -43,6 +43,10 @@ const sendForm = ref({
 const groups = ref<any[]>([])
 const users = ref<any[]>([])
 
+const isSuperAdmin = () => {
+  return userStore.userInfo?.roles?.includes('SUPER_ADMIN')
+}
+
 const isAdmin = () => {
   return userStore.userInfo?.roles?.includes('SUPER_ADMIN') ||
          userStore.userInfo?.roles?.includes('GROUP_ADMIN')
@@ -65,12 +69,27 @@ async function loadNotifications() {
 
 async function loadSendOptions() {
   try {
-    const [groupsData, usersData] = await Promise.all([
-      request.get('/users/groups'),
-      request.get('/users', { params: { page: 1, size: 1000 } })
-    ])
-    groups.value = groupsData.data || []
-    users.value = usersData.data?.records || []
+    if (isSuperAdmin()) {
+      const [groupsData, usersData] = await Promise.all([
+        request.get('/users/groups'),
+        request.get('/users', { params: { page: 1, size: 1000 } })
+      ])
+      groups.value = groupsData.data || []
+      users.value = usersData.data?.records || []
+    } else {
+      const myGroupId = userStore.userInfo?.groupId
+      if (myGroupId) {
+        const [groupsData, usersData] = await Promise.all([
+          request.get('/users/groups'),
+          request.get('/users', { params: { page: 1, size: 1000 } })
+        ])
+        groups.value = (groupsData.data || []).filter((g: any) => g.id === myGroupId)
+        users.value = (usersData.data?.records || []).filter((u: any) => u.groupId === myGroupId)
+      } else {
+        groups.value = []
+        users.value = []
+      }
+    }
   } catch {
     // ignore
   }
@@ -113,11 +132,12 @@ async function deleteNotification(id: number) {
 }
 
 function openSendModal() {
+  const superAdmin = isSuperAdmin()
   sendForm.value = {
     title: '',
     content: '',
-    sendType: 1,
-    targetGroupId: null,
+    sendType: superAdmin ? 1 : 2,
+    targetGroupId: superAdmin ? null : (userStore.userInfo?.groupId || null),
     targetUserIds: []
   }
   sendModalVisible.value = true
