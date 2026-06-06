@@ -9,7 +9,6 @@ import com.ylh.client.utils.ProcessCollector;
 import com.ylh.client.utils.ProcessDeltaCalculator;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +60,7 @@ public class ProcessReporter {
     private void sendFull(List<ProcessInfo> processList) throws IOException {
         int currentSeq = seq.incrementAndGet();
         SocketMessage msg = SocketMessage.processListFull(processList);
-        client.send(msg.serialize().getBytes(StandardCharsets.UTF_8));
+        client.sendProcessMessage(msg);
 
         lastSnapshot.clear();
         for (ProcessInfo p : processList) {
@@ -84,7 +83,7 @@ public class ProcessReporter {
         lastSnapshot.putAll(currentMap);
 
         SocketMessage msg = SocketMessage.processListDelta(delta);
-        client.send(msg.serialize().getBytes(StandardCharsets.UTF_8));
+        client.sendProcessMessage(msg);
 
         int changeCount = delta.getAdded().size() + delta.getRemoved().size() + delta.getChanged().size();
         System.out.println("Sent delta process list: seq=" + currentSeq

@@ -1,5 +1,6 @@
 package com.ylh.client.network;
 
+import com.ylh.client.common.CryptoService;
 import com.ylh.client.utils.ConfigUtil;
 
 import java.io.IOException;
@@ -19,6 +20,7 @@ public class UdpSender {
     private final String agentKey;
     private DatagramSocket socket;
     private InetAddress serverAddress;
+    private CryptoService cryptoService;
 
     public UdpSender() {
         Properties props = ConfigUtil.loadProperties("application.properties");
@@ -33,6 +35,10 @@ public class UdpSender {
         this.agentKey = agentKey;
     }
 
+    public void setCryptoService(CryptoService cryptoService) {
+        this.cryptoService = cryptoService;
+    }
+
     public void connect() throws IOException {
         if (socket != null && !socket.isClosed()) {
             return;
@@ -42,8 +48,6 @@ public class UdpSender {
         System.out.println("UDP sender ready: " + host + ":" + port);
     }
 
-    // 将 JPEG 帧封装为 UDP 数据包发送：小包（≤60KB）单包发送，大包自动分块发送（每块额外带 totalChunks + chunkIndex 头）
-    // 协议格式：[MAGIC 4字节][keyLength 4字节][agentKey UTF-8][可选: totalChunks 4字节 + chunkIndex 4字节][JPEG数据]
     public void sendFrame(byte[] jpegData) throws IOException {
         if (socket == null || socket.isClosed()) {
             throw new IOException("UDP socket not connected");
@@ -52,9 +56,19 @@ public class UdpSender {
             return;
         }
 
+        byte[] payload = jpegData;
+        if (cryptoService != null) {
+            try {
+                payload = cryptoService.encryptUdp(jpegData);
+            } catch (Exception e) {
+                System.err.println("UDP encryption failed, sending plaintext: " + e.getMessage());
+                payload = jpegData;
+            }
+        }
+
         byte[] keyBytes = agentKey.getBytes(StandardCharsets.UTF_8);
         int headerSize = 4 + 4 + keyBytes.length;
-        int totalSize = headerSize + jpegData.length;
+        int totalSize = headerSize + payload.length;
 
         if (totalSize <= MAX_UDP_SIZE) {
             byte[] packet = new byte[totalSize];
@@ -67,17 +81,17 @@ public class UdpSender {
             packet[6] = (byte) (keyBytes.length >>> 8);
             packet[7] = (byte) keyBytes.length;
             System.arraycopy(keyBytes, 0, packet, 8, keyBytes.length);
-            System.arraycopy(jpegData, 0, packet, headerSize, jpegData.length);
+            System.arraycopy(payload, 0, packet, headerSize, payload.length);
 
             DatagramPacket datagram = new DatagramPacket(packet, packet.length, serverAddress, port);
             socket.send(datagram);
         } else {
             int chunkPayloadSize = MAX_UDP_SIZE - headerSize - 8;
-            int totalChunks = (jpegData.length + chunkPayloadSize - 1) / chunkPayloadSize;
+            int totalChunks = (payload.length + chunkPayloadSize - 1) / chunkPayloadSize;
 
             for (int i = 0; i < totalChunks; i++) {
                 int offset = i * chunkPayloadSize;
-                int length = Math.min(chunkPayloadSize, jpegData.length - offset);
+                int length = Math.min(chunkPayloadSize, payload.length - offset);
                 int chunkHeaderSize = headerSize + 8;
                 byte[] chunkPacket = new byte[chunkHeaderSize + length];
 
@@ -101,7 +115,7 @@ public class UdpSender {
                 chunkPacket[pos++] = (byte) (i >>> 8);
                 chunkPacket[pos++] = (byte) i;
 
-                System.arraycopy(jpegData, offset, chunkPacket, pos, length);
+                System.arraycopy(payload, offset, chunkPacket, pos, length);
 
                 DatagramPacket datagram = new DatagramPacket(chunkPacket, chunkPacket.length, serverAddress, port);
                 socket.send(datagram);

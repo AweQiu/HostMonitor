@@ -15,6 +15,9 @@ import com.ylh.backend.Service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -62,6 +65,10 @@ public class ClientHandler implements Runnable {
     private int expectedProcessSeq = 1;
     private volatile long lastHeartbeatDbUpdate = 0;
     private volatile long lastPerfAlertCheck = 0;
+
+    private CryptoService cryptoService;
+    private boolean encryptionEnabled = false;
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     public ClientHandler(Socket clientSocket, long connectionId,
                          UserService userService, HostInfoService hostInfoService,
@@ -158,6 +165,21 @@ public class ClientHandler implements Runnable {
         }
 
         try {
+            if (MessageConstants.TYPE_ENCRYPTED.equals(msg.getType())) {
+                if (!encryptionEnabled || cryptoService == null) {
+                    log.warn("[#{}] Received encrypted message but encryption not enabled", connectionId);
+                    return;
+                }
+                String decrypted = decryptMessage(msg);
+                if (decrypted == null) return;
+                SocketMessage innerMsg = SocketMessage.parse(decrypted);
+                if (innerMsg == null) {
+                    log.warn("[#{}] Failed to parse decrypted message", connectionId);
+                    return;
+                }
+                msg = innerMsg;
+            }
+
             switch (msg.getType()) {
                 case MessageConstants.TYPE_AUTH:
                     handleAuth(msg, outputStream);
@@ -174,6 +196,17 @@ public class ClientHandler implements Runnable {
             }
         } catch (Exception e) {
             log.error("[#{}] Failed to handle message: {}", connectionId, raw, e);
+        }
+    }
+
+    private String decryptMessage(SocketMessage encMsg) {
+        try {
+            JsonNode node = JSON_MAPPER.readTree(encMsg.getBody());
+            String ciphertext = node.get("ciphertext").asText();
+            return cryptoService.decrypt(ciphertext);
+        } catch (Exception e) {
+            log.error("[#{}] Failed to decrypt message: {}", connectionId, e.getMessage());
+            return null;
         }
     }
 
@@ -214,8 +247,22 @@ public class ClientHandler implements Runnable {
         socketServer.kickExistingConnection(authenticatedUserId, connectionId);
         socketServer.registerUserConnection(authenticatedUserId, connectionId);
 
-        log.info("[#{}] Authenticated as user {} ({})", connectionId, authenticatedUserId, authenticatedUsername);
-        sendMessage(outputStream, SocketMessage.ok("Authenticated"));
+        if (authBody.clientPubKey != null && !authBody.clientPubKey.isEmpty()) {
+            try {
+                cryptoService = new CryptoService();
+                String serverPubKey = cryptoService.getPublicKeyBase64();
+                cryptoService.deriveAesKey(authBody.clientPubKey);
+                encryptionEnabled = true;
+                log.info("[#{}] ECDH key exchange completed, encryption enabled", connectionId);
+                sendMessage(outputStream, SocketMessage.okWithPubKey("Authenticated", serverPubKey));
+            } catch (Exception e) {
+                log.error("[#{}] ECDH key exchange failed, falling back to plaintext: {}", connectionId, e.getMessage());
+                sendMessage(outputStream, SocketMessage.ok("Authenticated"));
+            }
+        } else {
+            log.info("[#{}] Client did not provide public key, using plaintext", connectionId);
+            sendMessage(outputStream, SocketMessage.ok("Authenticated"));
+        }
 
         sendClientConfig(outputStream);
 
@@ -423,7 +470,14 @@ public class ClientHandler implements Runnable {
     }
 
     private void sendMessage(OutputStream outputStream, SocketMessage msg) throws IOException {
-        outputStream.write(msg.serialize().getBytes(StandardCharsets.UTF_8));
+        if (encryptionEnabled && cryptoService != null && state == State.AUTHENTICATED) {
+            String plainJson = msg.serialize().trim();
+            String ciphertext = cryptoService.encrypt(plainJson);
+            SocketMessage encMsg = SocketMessage.encrypted("", ciphertext);
+            outputStream.write(encMsg.serialize().getBytes(StandardCharsets.UTF_8));
+        } else {
+            outputStream.write(msg.serialize().getBytes(StandardCharsets.UTF_8));
+        }
         outputStream.flush();
     }
 
@@ -455,6 +509,10 @@ public class ClientHandler implements Runnable {
         try {
             synchronized (os) {
                 SocketMessage msg = SocketMessage.configUpdate(config);
+                if (encryptionEnabled && cryptoService != null) {
+                    String ciphertext = cryptoService.encrypt(msg.serialize().trim());
+                    msg = SocketMessage.encrypted("", ciphertext);
+                }
                 os.write(msg.serialize().getBytes(StandardCharsets.UTF_8));
                 os.flush();
             }
@@ -498,6 +556,10 @@ public class ClientHandler implements Runnable {
         try {
             synchronized (os) {
                 SocketMessage msg = SocketMessage.command(command);
+                if (encryptionEnabled && cryptoService != null) {
+                    String ciphertext = cryptoService.encrypt(msg.serialize().trim());
+                    msg = SocketMessage.encrypted("", ciphertext);
+                }
                 os.write(msg.serialize().getBytes(StandardCharsets.UTF_8));
                 os.flush();
             }
@@ -515,5 +577,14 @@ public class ClientHandler implements Runnable {
 
     private static class AuthBody {
         public String agentKey;
+        public String clientPubKey;
+    }
+
+    public CryptoService getCryptoService() {
+        return cryptoService;
+    }
+
+    public boolean isEncryptionEnabled() {
+        return encryptionEnabled;
     }
 }

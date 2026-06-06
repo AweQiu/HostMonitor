@@ -10,6 +10,7 @@ import com.ylh.backend.Mapper.HostProcessMapper;
 import com.ylh.backend.Mapper.NotificationMapper;
 import com.ylh.backend.Mapper.UserNotificationMapper;
 import com.ylh.backend.Service.AlertSettingService;
+import com.ylh.backend.Service.LoginAttemptService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,6 +30,7 @@ public class DataCleanupTask {
     private final HostProcessMapper hostProcessMapper;
     private final NotificationMapper notificationMapper;
     private final UserNotificationMapper userNotificationMapper;
+    private final LoginAttemptService loginAttemptService;
 
     @Scheduled(cron = "0 0 3 * * ?")
     public void cleanExpiredData() {
@@ -49,6 +51,8 @@ public class DataCleanupTask {
         if (notifCount > 0) {
             log.info("通知清理完成: 清理 {} 条过期通知 (保留 {} 天)", notifCount, notificationRetentionDays);
         }
+
+        loginAttemptService.cleanOldAttempts(24);
     }
 
     private long cleanMetrics(LocalDateTime threshold) {

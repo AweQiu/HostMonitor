@@ -1,5 +1,6 @@
 package com.ylh.client.network;
 
+import com.ylh.client.common.CryptoService;
 import com.ylh.client.common.MessageConstants;
 import com.ylh.client.common.SocketMessage;
 import com.ylh.client.models.HostInfo;
@@ -26,6 +27,9 @@ public class NetworkClient {
     private volatile boolean listening = false;
     private Consumer<SocketMessage> messageHandler;
 
+    private CryptoService cryptoService;
+    private boolean encryptionEnabled = false;
+
     public NetworkClient() {
         Properties props = ConfigUtil.loadProperties("application.properties");
         this.host = props.getProperty("socket.host", "127.0.0.1");
@@ -51,27 +55,83 @@ public class NetworkClient {
         String welcomeStr = new String(welcome, StandardCharsets.UTF_8).trim();
         System.out.println("Server: " + welcomeStr);
 
-        SocketMessage authMsg = SocketMessage.auth(agentKey);
-        send(authMsg.serialize().getBytes(StandardCharsets.UTF_8));
+        try {
+            cryptoService = new CryptoService();
+            String clientPubKey = cryptoService.getPublicKeyBase64();
+            SocketMessage authMsg = SocketMessage.authWithPubKey(agentKey, clientPubKey);
+            sendRaw(authMsg.serialize().getBytes(StandardCharsets.UTF_8));
 
-        byte[] authResp = receive(4096);
-        String authResult = new String(authResp, StandardCharsets.UTF_8).trim();
-        System.out.println("Auth: " + authResult);
+            byte[] authResp = receive(4096);
+            String authResult = new String(authResp, StandardCharsets.UTF_8).trim();
+            System.out.println("Auth: " + authResult);
 
-        SocketMessage resp = SocketMessage.parse(authResult);
-        return resp != null && resp.isOk();
+            SocketMessage resp = SocketMessage.parse(authResult);
+            if (resp == null || !resp.isOk()) {
+                cryptoService = null;
+                return false;
+            }
+
+            String serverPubKey = resp.getServerPubKey();
+            if (serverPubKey != null && !serverPubKey.isEmpty()) {
+                cryptoService.deriveAesKey(serverPubKey);
+                encryptionEnabled = true;
+                System.out.println("ECDH key exchange completed, encryption enabled");
+            } else {
+                System.out.println("Server did not provide public key, using plaintext");
+                cryptoService = null;
+            }
+
+            return true;
+        } catch (Exception e) {
+            System.err.println("ECDH key exchange failed, falling back to plaintext: " + e.getMessage());
+            cryptoService = null;
+            encryptionEnabled = false;
+
+            SocketMessage authMsg = SocketMessage.auth(agentKey);
+            sendRaw(authMsg.serialize().getBytes(StandardCharsets.UTF_8));
+
+            byte[] authResp = receive(4096);
+            String authResult = new String(authResp, StandardCharsets.UTF_8).trim();
+            System.out.println("Auth (plaintext): " + authResult);
+
+            SocketMessage resp = SocketMessage.parse(authResult);
+            return resp != null && resp.isOk();
+        }
     }
 
     public void sendHostInfo() throws IOException {
         HostInfo hostInfo = CollectionUtil.collectHostInfo();
         SocketMessage msg = SocketMessage.hostInfo(hostInfo);
-        send(msg.serialize().getBytes(StandardCharsets.UTF_8));
+        sendMessage(msg);
     }
 
     public void sendMetric() throws IOException {
         HostMetric metric = CollectionUtil.collectMetric();
         SocketMessage msg = SocketMessage.hostMetric(metric);
-        send(msg.serialize().getBytes(StandardCharsets.UTF_8));
+        sendMessage(msg);
+    }
+
+    public void sendProcessMessage(SocketMessage msg) throws IOException {
+        sendMessage(msg);
+    }
+
+    private void sendMessage(SocketMessage msg) throws IOException {
+        if (encryptionEnabled && cryptoService != null) {
+            String plainJson = msg.serialize().trim();
+            String ciphertext = cryptoService.encrypt(plainJson);
+            SocketMessage encMsg = SocketMessage.encrypted(ciphertext);
+            sendRaw(encMsg.serialize().getBytes(StandardCharsets.UTF_8));
+        } else {
+            sendRaw(msg.serialize().getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private void sendRaw(byte[] data) throws IOException {
+        if (!isConnected()) {
+            throw new IOException("Not connected to server");
+        }
+        outputStream.write(data);
+        outputStream.flush();
     }
 
     public void setMessageHandler(Consumer<SocketMessage> handler) {
@@ -103,7 +163,26 @@ public class NetworkClient {
 
                         if (!raw.isEmpty()) {
                             SocketMessage msg = SocketMessage.parse(raw);
-                            if (msg != null && messageHandler != null) {
+                            if (msg == null) continue;
+
+                            if (MessageConstants.TYPE_ENCRYPTED.equals(msg.getType())) {
+                                if (!encryptionEnabled || cryptoService == null) {
+                                    System.err.println("Received encrypted message but encryption not enabled");
+                                    continue;
+                                }
+                                String ciphertext = msg.getCiphertext();
+                                if (ciphertext == null) continue;
+                                try {
+                                    String decrypted = cryptoService.decrypt(ciphertext);
+                                    msg = SocketMessage.parse(decrypted);
+                                    if (msg == null) continue;
+                                } catch (Exception e) {
+                                    System.err.println("Failed to decrypt message: " + e.getMessage());
+                                    continue;
+                                }
+                            }
+
+                            if (messageHandler != null) {
                                 messageHandler.accept(msg);
                             }
                         }
@@ -147,6 +226,8 @@ public class NetworkClient {
         socket = null;
         outputStream = null;
         inputStream = null;
+        cryptoService = null;
+        encryptionEnabled = false;
     }
 
     public boolean isConnected() {
@@ -154,11 +235,7 @@ public class NetworkClient {
     }
 
     public void send(byte[] data) throws IOException {
-        if (!isConnected()) {
-            throw new IOException("Not connected to server");
-        }
-        outputStream.write(data);
-        outputStream.flush();
+        sendRaw(data);
     }
 
     public byte[] receive(int maxBytes) throws IOException {
@@ -181,5 +258,13 @@ public class NetworkClient {
 
     public int getPort() {
         return port;
+    }
+
+    public CryptoService getCryptoService() {
+        return cryptoService;
+    }
+
+    public boolean isEncryptionEnabled() {
+        return encryptionEnabled;
     }
 }

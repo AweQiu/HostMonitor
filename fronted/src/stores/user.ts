@@ -33,10 +33,15 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('token')
   }
 
-  async function login(username: string, password: string): Promise<boolean> {
-    const data = await request.post('/auth/login', { username, password })
-    setToken(data.data.token)
-    setUserInfo(data.data.user)
+  async function login(username: string, password: string, captchaKey?: string, captchaAnswer?: string): Promise<boolean> {
+    const data: any = { username, password }
+    if (captchaKey && captchaAnswer) {
+      data.captchaKey = captchaKey
+      data.captchaAnswer = captchaAnswer
+    }
+    const res = await request.post('/auth/login', data)
+    setToken(res.data.token)
+    setUserInfo(res.data.user)
     return true
   }
 

@@ -63,7 +63,17 @@ public class SocketMessage {
     }
 
     public static SocketMessage connected() {
-        return new SocketMessage(MessageConstants.TYPE_CONNECTED, "{\"version\":\"1.0\"}");
+        return new SocketMessage(MessageConstants.TYPE_CONNECTED, "{\"version\":\"2.0\"}");
+    }
+
+    public static SocketMessage okWithPubKey(String message, String serverPubKey) {
+        return new SocketMessage(MessageConstants.TYPE_OK,
+                "{\"message\":\"" + escapeJson(message) + "\",\"serverPubKey\":\"" + escapeJson(serverPubKey) + "\"}");
+    }
+
+    public static SocketMessage encrypted(String iv, String ciphertext) {
+        return new SocketMessage(MessageConstants.TYPE_ENCRYPTED,
+                "{\"iv\":\"" + escapeJson(iv) + "\",\"ciphertext\":\"" + escapeJson(ciphertext) + "\"}");
     }
 
     public static SocketMessage ok(String message) {

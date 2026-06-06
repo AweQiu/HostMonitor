@@ -101,6 +101,16 @@ public class SocketMessage {
                 "{\"agentKey\":\"" + escapeJson(agentKey) + "\"}");
     }
 
+    public static SocketMessage authWithPubKey(String agentKey, String clientPubKey) {
+        return new SocketMessage(MessageConstants.TYPE_AUTH,
+                "{\"agentKey\":\"" + escapeJson(agentKey) + "\",\"clientPubKey\":\"" + escapeJson(clientPubKey) + "\"}");
+    }
+
+    public static SocketMessage encrypted(String ciphertext) {
+        return new SocketMessage(MessageConstants.TYPE_ENCRYPTED,
+                "{\"ciphertext\":\"" + escapeJson(ciphertext) + "\"}");
+    }
+
     public static SocketMessage hostInfo(Object data) {
         return wrap(MessageConstants.TYPE_HOST_INFO, data);
     }
@@ -138,8 +148,23 @@ public class SocketMessage {
         String command;
     }
 
+    private static class EncryptedBody {
+        String ciphertext;
+    }
+
     private static class ResponseBody {
         String message;
+        String serverPubKey;
+    }
+
+    public String getServerPubKey() {
+        ResponseBody resp = getBodyAs(ResponseBody.class);
+        return resp != null ? resp.serverPubKey : null;
+    }
+
+    public String getCiphertext() {
+        EncryptedBody enc = getBodyAs(EncryptedBody.class);
+        return enc != null ? enc.ciphertext : null;
     }
 
     private static class LocalDateTimeAdapter extends TypeAdapter<LocalDateTime> {

@@ -30,18 +30,41 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final AlertSettingService alertSettingService;
+    private final LoginAttemptService loginAttemptService;
+    private final CaptchaService captchaService;
 
-    public AuthResponse login(LoginRequest request) {
+    public AuthResponse login(LoginRequest request, String ipAddress) {
+        if (loginAttemptService.isIpRateLimited(ipAddress)) {
+            throw new BusinessException(429, "请求过于频繁，请稍后再试");
+        }
+
+        if (loginAttemptService.isCaptchaRequired(ipAddress)) {
+            if (request.getCaptchaKey() == null || request.getCaptchaAnswer() == null) {
+                throw new BusinessException(403, "需要验证码，请刷新页面后重试");
+            }
+            if (!captchaService.validateCaptcha(request.getCaptchaKey(), request.getCaptchaAnswer())) {
+                throw new BusinessException(400, "验证码错误");
+            }
+        }
+
+        if (loginAttemptService.isAccountLocked(request.getUsername())) {
+            throw new BusinessException(423, "账号已被临时锁定，请15分钟后再试");
+        }
+
         User user = userService.getByUsername(request.getUsername());
         if (user == null) {
+            loginAttemptService.recordAttempt(request.getUsername(), ipAddress, false);
             throw new UnauthorizedException("用户名或密码错误");
         }
         if (user.getStatus() != 1) {
             throw new UnauthorizedException("账号已被禁用");
         }
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            loginAttemptService.recordAttempt(request.getUsername(), ipAddress, false);
             throw new UnauthorizedException("用户名或密码错误");
         }
+
+        loginAttemptService.recordAttempt(request.getUsername(), ipAddress, true);
 
         List<String> roles = buildUserDTO(user).getRoles();
         int sessionTimeoutHours = alertSettingService.getInt("session_timeout_hours", 24);

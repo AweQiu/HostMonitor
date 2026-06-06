@@ -292,4 +292,11 @@ public class SocketServer {
             handler.sendConfigMessage(config);
         }
     }
+
+    public ClientHandler getHandlerByUserId(Long userId) {
+        if (userId == null) return null;
+        Long connId = userConnectionMap.get(userId);
+        if (connId == null) return null;
+        return clients.get(connId);
+    }
 }

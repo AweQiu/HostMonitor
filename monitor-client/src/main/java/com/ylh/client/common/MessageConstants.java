@@ -16,6 +16,7 @@ public final class MessageConstants {
     public static final String TYPE_ERROR = "ERROR";
     public static final String TYPE_CMD = "CMD";
     public static final String TYPE_CONFIG = "CONFIG";
+    public static final String TYPE_ENCRYPTED = "ENCRYPTED";
 
     public static final String CMD_SCREEN_START = "SCREEN_START";
     public static final String CMD_SCREEN_STOP = "SCREEN_STOP";

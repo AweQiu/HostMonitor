@@ -60,6 +60,10 @@ public class MonitorClient {
 
             if (screenEnabled) {
                 udpSender = new UdpSender();
+                if (client.isEncryptionEnabled()) {
+                    udpSender.setCryptoService(client.getCryptoService());
+                    System.out.println("UDP encryption enabled (shared CryptoService with TCP)");
+                }
 
                 client.setMessageHandler(msg -> {
                     if (MessageConstants.TYPE_CONFIG.equals(msg.getType())) {

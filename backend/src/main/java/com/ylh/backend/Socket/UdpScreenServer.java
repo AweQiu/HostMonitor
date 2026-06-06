@@ -7,6 +7,7 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.net.DatagramPacket;
@@ -36,9 +37,12 @@ public class UdpScreenServer {
     private final Map<Long, ChunkBuffer> chunkBuffers = new ConcurrentHashMap<>();
     private final Map<String, Long> agentKeyCache = new ConcurrentHashMap<>();
 
-    public UdpScreenServer(UserService userService, ScreenStreamManager streamManager) {
+    private final SocketServer socketServer;
+
+    public UdpScreenServer(UserService userService, ScreenStreamManager streamManager, SocketServer socketServer) {
         this.userService = userService;
         this.streamManager = streamManager;
+        this.socketServer = socketServer;
     }
 
     // 启动两个守护线程：UDP 监听线程（接收客户端帧数据）和过期缓冲清理线程（清理超时未完成的分包）
@@ -127,7 +131,10 @@ public class UdpScreenServer {
             if (totalChunks <= 1) {
                 int chunkDataStart = headerSize + 8;
                 byte[] jpegData = Arrays.copyOfRange(data, chunkDataStart, length);
-                streamManager.updateFrame(userId, jpegData);
+                jpegData = tryDecryptUdp(userId, jpegData);
+                if (jpegData != null) {
+                    streamManager.updateFrame(userId, jpegData);
+                }
                 return;
             }
 
@@ -139,6 +146,7 @@ public class UdpScreenServer {
             if (complete) {
                 byte[] fullFrame = chunkBuffer.assemble();
                 chunkBuffers.remove(userId);
+                fullFrame = tryDecryptUdp(userId, fullFrame);
                 if (fullFrame != null && fullFrame.length > 0) {
                     streamManager.updateFrame(userId, fullFrame);
                 }
@@ -147,7 +155,23 @@ public class UdpScreenServer {
         }
 
         byte[] jpegData = Arrays.copyOfRange(data, headerSize, length);
-        streamManager.updateFrame(userId, jpegData);
+        jpegData = tryDecryptUdp(userId, jpegData);
+        if (jpegData != null) {
+            streamManager.updateFrame(userId, jpegData);
+        }
+    }
+
+    private byte[] tryDecryptUdp(Long userId, byte[] data) {
+        if (data == null || data.length == 0) return data;
+        ClientHandler handler = socketServer.getHandlerByUserId(userId);
+        if (handler == null || !handler.isEncryptionEnabled()) return data;
+        CryptoService crypto = handler.getCryptoService();
+        if (crypto == null) return data;
+        try {
+            return crypto.decryptUdp(data);
+        } catch (Exception e) {
+            return data;
+        }
     }
 
     // 每 3 秒清理超过 2 秒未完成的 ChunkBuffer，防止内存泄漏

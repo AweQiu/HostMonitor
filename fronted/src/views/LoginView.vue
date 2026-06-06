@@ -1,19 +1,48 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { UserOutlined, LockOutlined } from '@ant-design/icons-vue'
+import { UserOutlined, LockOutlined, SafetyOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useUserStore } from '@/stores/user'
+import request from '@/utils/request'
 
 const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(false)
+
+const captchaRequired = ref(false)
+const captchaKey = ref('')
+const captchaImage = ref('')
+const captchaAnswer = ref('')
 
 const formState = reactive({
   username: '',
   password: '',
   remember: true
 })
+
+async function checkLoginStatus() {
+  try {
+    const res = await request.get('/auth/login-status')
+    captchaRequired.value = res.data.captchaRequired
+    if (captchaRequired.value) {
+      await refreshCaptcha()
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function refreshCaptcha() {
+  try {
+    const res = await request.get('/auth/captcha')
+    captchaKey.value = res.data.captchaKey
+    captchaImage.value = res.data.captchaImage
+    captchaAnswer.value = ''
+  } catch {
+    message.error('获取验证码失败')
+  }
+}
 
 async function handleLogin() {
   if (!formState.username) {
@@ -24,14 +53,22 @@ async function handleLogin() {
     message.warning('请输入密码')
     return
   }
+  if (captchaRequired.value && !captchaAnswer.value) {
+    message.warning('请输入验证码')
+    return
+  }
 
   loading.value = true
   try {
-    await userStore.login(formState.username, formState.password)
+    await userStore.login(formState.username, formState.password,
+      captchaRequired.value ? captchaKey.value : undefined,
+      captchaRequired.value ? captchaAnswer.value : undefined
+    )
     message.success('登录成功')
     router.push('/')
   } catch (error: any) {
-    message.error(error.message || '登录失败')
+    captchaRequired.value = true
+    await refreshCaptcha()
   } finally {
     loading.value = false
   }
@@ -40,6 +77,10 @@ async function handleLogin() {
 function goToRegister() {
   router.push('/register')
 }
+
+onMounted(() => {
+  checkLoginStatus()
+})
 </script>
 
 <template>
@@ -88,6 +129,27 @@ function goToRegister() {
               <LockOutlined style="color: rgba(0, 0, 0, 0.25)" />
             </template>
           </a-input-password>
+        </a-form-item>
+
+        <a-form-item v-if="captchaRequired" name="captcha">
+          <div class="captcha-row">
+            <a-input
+              v-model:value="captchaAnswer"
+              size="large"
+              placeholder="验证码"
+              style="flex: 1"
+            >
+              <template #prefix>
+                <SafetyOutlined style="color: rgba(0, 0, 0, 0.25)" />
+              </template>
+            </a-input>
+            <div class="captcha-image-wrapper" @click="refreshCaptcha" title="点击刷新验证码">
+              <img v-if="captchaImage" :src="captchaImage" alt="captcha" class="captcha-img" />
+              <a-button v-else size="large" @click.stop="refreshCaptcha">
+                <ReloadOutlined />
+              </a-button>
+            </div>
+          </div>
         </a-form-item>
 
         <a-form-item>
@@ -204,6 +266,33 @@ function goToRegister() {
 
 .login-form {
   max-width: 100%;
+}
+
+.captcha-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.captcha-image-wrapper {
+  cursor: pointer;
+  flex-shrink: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 0.3s;
+}
+
+.captcha-image-wrapper:hover {
+  border-color: #1890ff;
+}
+
+.captcha-img {
+  height: 40px;
+  display: block;
 }
 
 .form-actions {
