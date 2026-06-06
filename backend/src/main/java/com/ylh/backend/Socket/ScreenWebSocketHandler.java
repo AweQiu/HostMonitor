@@ -34,6 +34,7 @@ public class ScreenWebSocketHandler extends AbstractWebSocketHandler {
         this.jwtUtil = jwtUtil;
     }
 
+    // WebSocket 连接建立时：提取 hostId 和 token，验证权限后调用 streamManager.subscribe 订阅该主机的屏幕流
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Long hostId = getHostId(session);
@@ -78,6 +79,7 @@ public class ScreenWebSocketHandler extends AbstractWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
     }
 
+    // WebSocket 连接关闭时：调用 streamManager.unsubscribe 取消订阅，若为最后一个订阅者则触发 SCREEN_STOP
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         Long userId = getUserId(session);
@@ -96,6 +98,7 @@ public class ScreenWebSocketHandler extends AbstractWebSocketHandler {
         }
     }
 
+    // 屏幕查看权限检查：超管可看所有主机，组管理员可看同组主机，普通用户只能看自己的主机
     private boolean checkScreenAccess(Long viewerUserId, HostInfo host) {
         List<String> roles = userService.getUserRoleKeys(viewerUserId);
         boolean isSuperAdmin = roles.contains("SUPER_ADMIN");
@@ -121,6 +124,7 @@ public class ScreenWebSocketHandler extends AbstractWebSocketHandler {
         return host.getUserId().equals(viewerUserId);
     }
 
+    // 从 Session 属性中提取 JWT token 并验证，返回观看者的用户ID
     private Long getViewerUserId(WebSocketSession session) {
         Map<String, Object> attrs = session.getAttributes();
         Object token = attrs.get("token");
@@ -130,6 +134,7 @@ public class ScreenWebSocketHandler extends AbstractWebSocketHandler {
         return null;
     }
 
+    // 从 Session 属性中提取主机ID（由握手拦截器在连接时写入）
     private Long getHostId(WebSocketSession session) {
         Map<String, Object> attrs = session.getAttributes();
         Object hostId = attrs.get("hostId");
@@ -139,6 +144,7 @@ public class ScreenWebSocketHandler extends AbstractWebSocketHandler {
         return null;
     }
 
+    // 从 Session 属性中提取主机所属用户ID（由 afterConnectionEstablished 写入）
     private Long getUserId(WebSocketSession session) {
         Map<String, Object> attrs = session.getAttributes();
         Object userId = attrs.get("userId");

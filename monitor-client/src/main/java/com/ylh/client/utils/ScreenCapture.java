@@ -48,6 +48,7 @@ public final class ScreenCapture {
         return captureScreen(0.5f);
     }
 
+    // 使用 Robot 截取全屏幕（支持多显示器），缩放后 JPEG 压缩；压缩后超过 45KB 且 quality > 0.2 时自动降低质量重新压缩
     public static byte[] captureScreen(float quality) {
         BufferedImage screenshot = robot.createScreenCapture(screenRect);
         BufferedImage scaled = scaleDown(screenshot);
@@ -65,6 +66,7 @@ public final class ScreenCapture {
         return result;
     }
 
+    // 宽度超过 1280px 时等比缩放，减少数据量和传输开销
     private static BufferedImage scaleDown(BufferedImage src) {
         int w = src.getWidth();
         int h = src.getHeight();
@@ -81,6 +83,7 @@ public final class ScreenCapture {
         return dest;
     }
 
+    // 将 BufferedImage 以指定 quality 压缩为 JPEG 字节数组
     private static byte[] compress(BufferedImage image, float quality) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             writeParam.setCompressionQuality(quality);

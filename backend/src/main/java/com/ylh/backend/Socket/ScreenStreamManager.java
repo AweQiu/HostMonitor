@@ -24,6 +24,7 @@ public class ScreenStreamManager {
 
     private volatile ScreenSubscriptionListener subscriptionListener;
 
+    // 订阅监听器接口：第一个订阅者到达时回调 onFirstSubscriber（触发 SCREEN_START），最后一个离开时回调 onLastSubscriberLeft（触发 SCREEN_STOP）
     public interface ScreenSubscriptionListener {
         void onFirstSubscriber(Long userId);
         void onLastSubscriberLeft(Long userId);
@@ -33,6 +34,7 @@ public class ScreenStreamManager {
         this.subscriptionListener = listener;
     }
 
+    // 接收 UDP 帧数据，缓存最新帧并广播给该用户的所有 WebSocket 订阅者；无订阅者时丢弃帧以节省资源
     public boolean updateFrame(Long userId, byte[] jpegData) {
         if (userId == null || jpegData == null || jpegData.length == 0) {
             return false;
@@ -49,11 +51,13 @@ public class ScreenStreamManager {
         return true;
     }
 
+    // 判断该用户是否有 WebSocket 订阅者，用于 UDP 帧接收时决定是否丢弃
     public boolean hasSubscribers(Long userId) {
         List<WebSocketSession> sessions = subscribers.get(userId);
         return sessions != null && !sessions.isEmpty();
     }
 
+    // 将 WebSocket 会话注册为该用户屏幕流的订阅者；如有缓存帧则立即发送（快速首帧）；若是第一个订阅者则触发 onFirstSubscriber 回调
     public void subscribe(Long userId, WebSocketSession session) {
         boolean wasEmpty = !hasSubscribers(userId);
 
@@ -74,6 +78,7 @@ public class ScreenStreamManager {
         }
     }
 
+    // 将 WebSocket 会话从订阅列表移除；若是最后一个订阅者离开则触发 onLastSubscriberLeft 回调，并清理缓存帧
     public void unsubscribe(Long userId, WebSocketSession session) {
         List<WebSocketSession> sessions = subscribers.get(userId);
         if (sessions != null) {
@@ -99,6 +104,7 @@ public class ScreenStreamManager {
         return activeStreams;
     }
 
+    // 将 JPEG 帧以 BinaryMessage 广播给该用户的所有在线 WebSocket 订阅者
     private void broadcastToSubscribers(Long userId, byte[] jpegData, List<WebSocketSession> sessions) {
         BinaryMessage message = new BinaryMessage(jpegData);
         for (WebSocketSession session : sessions) {

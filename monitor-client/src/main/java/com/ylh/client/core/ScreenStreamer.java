@@ -17,6 +17,7 @@ public class ScreenStreamer {
         this.udpSender = udpSender;
     }
 
+    // 启动截屏循环线程：从 RuntimeConfig 动态读取 fps 和 quality，循环调用 ScreenCapture 截屏并通过 UdpSender 发送，sleep 控制帧率
     public void start() {
         if (running.compareAndSet(false, true)) {
             streamThread = new Thread(() -> {
@@ -59,6 +60,7 @@ public class ScreenStreamer {
         }
     }
 
+    // 停止截屏循环，中断线程并断开 UDP 连接
     public void stop() {
         running.set(false);
         if (streamThread != null) {

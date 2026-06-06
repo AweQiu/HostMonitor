@@ -42,6 +42,8 @@ public class UdpSender {
         System.out.println("UDP sender ready: " + host + ":" + port);
     }
 
+    // 将 JPEG 帧封装为 UDP 数据包发送：小包（≤60KB）单包发送，大包自动分块发送（每块额外带 totalChunks + chunkIndex 头）
+    // 协议格式：[MAGIC 4字节][keyLength 4字节][agentKey UTF-8][可选: totalChunks 4字节 + chunkIndex 4字节][JPEG数据]
     public void sendFrame(byte[] jpegData) throws IOException {
         if (socket == null || socket.isClosed()) {
             throw new IOException("UDP socket not connected");

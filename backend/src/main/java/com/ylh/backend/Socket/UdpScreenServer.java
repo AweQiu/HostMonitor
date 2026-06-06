@@ -41,6 +41,7 @@ public class UdpScreenServer {
         this.streamManager = streamManager;
     }
 
+    // 启动两个守护线程：UDP 监听线程（接收客户端帧数据）和过期缓冲清理线程（清理超时未完成的分包）
     @PostConstruct
     public void start() {
         Thread udpThread = new Thread(this::listen, "udp-screen-server");
@@ -52,6 +53,7 @@ public class UdpScreenServer {
         cleanupThread.start();
     }
 
+    // UDP 监听循环：持续接收 UDP 数据包，调用 processPacket 解析处理
     private void listen() {
         try {
             socket = new DatagramSocket(port);
@@ -76,6 +78,7 @@ public class UdpScreenServer {
         }
     }
 
+    // 解析 UDP 数据包：验证 MAGIC 头 → 提取 agentKey 查找 userId → 检查是否有订阅者 → 单包帧直接转发，分包帧用 ChunkBuffer 组装后转发
     private void processPacket(byte[] data, int length) {
         if (length < 8) {
             return;
@@ -147,6 +150,7 @@ public class UdpScreenServer {
         streamManager.updateFrame(userId, jpegData);
     }
 
+    // 每 3 秒清理超过 2 秒未完成的 ChunkBuffer，防止内存泄漏
     private void cleanupStaleBuffers() {
         while (running) {
             try {
@@ -174,12 +178,14 @@ public class UdpScreenServer {
         log.info("UDP screen server stopped");
     }
 
+    // 分包缓冲区：按 chunkIndex 存储分块数据，所有块到齐后按序拼接为完整 JPEG 帧
     private static class ChunkBuffer {
         final long createdAt = System.currentTimeMillis();
         int totalChunks;
         final Map<Integer, byte[]> chunks = new ConcurrentHashMap<>();
         volatile boolean initialized = false;
 
+        // 添加一个分块，返回 true 表示所有分块已到齐
         boolean addChunk(int totalChunks, int chunkIndex, byte[] data) {
             if (!initialized) {
                 this.totalChunks = totalChunks;
@@ -189,6 +195,7 @@ public class UdpScreenServer {
             return chunks.size() == this.totalChunks;
         }
 
+        // 将所有分块按序拼接为完整字节数组
         byte[] assemble() {
             int totalSize = 0;
             for (int i = 0; i < totalChunks; i++) {

@@ -76,8 +76,8 @@ async function fetchHosts() {
     if (isUser.value && hostData.value.length === 1) {
       router.replace({
         name: 'hostDetail',
-        params: { hostId: hostData.value[0].id },
-        query: { name: hostData.value[0].hostname }
+        params: { hostId: hostData.value[0]?.id },
+        query: { name: hostData.value[0]?.hostname || '' }
       })
       return
     }
@@ -85,8 +85,8 @@ async function fetchHosts() {
     if (isUser.value && hostData.value.length > 1) {
       router.replace({
         name: 'hostDetail',
-        params: { hostId: hostData.value[0].id },
-        query: { name: hostData.value[0].hostname }
+        params: { hostId: hostData.value[0]?.id },
+        query: { name: hostData.value[0]?.hostname || '' }
       })
       return
     }

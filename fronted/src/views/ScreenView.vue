@@ -27,6 +27,7 @@ let pendingData: ArrayBuffer | null = null
 let renderRAF: number | null = null
 let destroyed = false
 
+// 根据当前页面协议自动选择 ws/wss，拼接 hostId 和 JWT token 生成 WebSocket 连接地址
 function getWsUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
@@ -34,6 +35,7 @@ function getWsUrl() {
   return `${protocol}//${host}/ws/screen/${hostId.value}?token=${token}`
 }
 
+// 建立 WebSocket 连接，连接成功即视为订阅屏幕流；断线后 3 秒自动重连
 function connect() {
   if (destroyed) return
   if (ws && ws.readyState === WebSocket.OPEN) return
@@ -86,6 +88,7 @@ function connect() {
   }
 }
 
+// 渲染帧数据：将 WebSocket 收到的 ArrayBuffer 解码为 JPEG，绘制到 Canvas；使用 pendingData 只保留最新帧，用 requestAnimationFrame 调度避免积压
 function doRender() {
   renderRAF = null
   if (destroyed) return
@@ -125,6 +128,7 @@ function doRender() {
   img.src = url
 }
 
+// 断开 WebSocket 连接，取消订阅屏幕流；清除所有定时器和重连任务
 function disconnect() {
   destroyed = true
 
@@ -151,6 +155,7 @@ function disconnect() {
   stopLiveChecker()
 }
 
+// 每秒统计一次接收帧数，用于显示实时 FPS
 function startFpsCounter() {
   stopFpsCounter()
   fpsTimer = setInterval(() => {
@@ -167,6 +172,7 @@ function stopFpsCounter() {
   fps.value = 0
 }
 
+// 每 3 秒检查是否超过 10 秒未收到帧，超时则标记为非活跃状态
 function startLiveChecker() {
   stopLiveChecker()
   liveCheckTimer = setInterval(() => {
