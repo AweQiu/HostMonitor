@@ -23,7 +23,7 @@ public class UdpSender {
     private CryptoService cryptoService;
 
     public UdpSender() {
-        Properties props = ConfigUtil.loadProperties("application.properties");
+        Properties props = ConfigUtil.loadProperties("application.yml");
         this.host = props.getProperty("screen.udp.host", props.getProperty("socket.host", "127.0.0.1"));
         this.port = Integer.parseInt(props.getProperty("screen.udp.port", "10802"));
         this.agentKey = props.getProperty("agent.key", "");

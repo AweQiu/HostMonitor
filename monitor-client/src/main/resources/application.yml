@@ -1,0 +1,22 @@
+socket:
+  host: 127.0.0.1
+  port: 10801
+
+agent:
+  key: '${AGENT_KEY}'
+
+screen:
+  enabled: true
+  udp:
+    port: 10802
+  fps: 5
+  jpeg:
+    quality: 0.5
+
+metric:
+  interval:
+    ms: 5000
+
+process:
+  interval:
+    ms: 15000

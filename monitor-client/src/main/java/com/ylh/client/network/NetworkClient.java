@@ -32,7 +32,7 @@ public class NetworkClient {
     private boolean encryptionEnabled = false;
 
     public NetworkClient() {
-        Properties props = ConfigUtil.loadProperties("application.properties");
+        Properties props = ConfigUtil.loadProperties("application.yml");
         this.host = props.getProperty("socket.host", "127.0.0.1");
         this.port = Integer.parseInt(props.getProperty("socket.port", "10801"));
     }

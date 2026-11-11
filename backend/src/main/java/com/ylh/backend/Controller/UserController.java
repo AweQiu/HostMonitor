@@ -17,6 +17,7 @@ import com.ylh.backend.Mapper.UserRoleMapper;
 import com.ylh.backend.Service.GroupService;
 import com.ylh.backend.Service.UserService;
 import com.ylh.backend.Socket.SocketServer;
+import com.ylh.backend.Socket.UdpScreenServer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -36,6 +37,7 @@ public class UserController {
     private final PasswordEncoder passwordEncoder;
     private final GroupService groupService;
     private final SocketServer socketServer;
+    private final UdpScreenServer udpScreenServer;
     private final AccessChecker accessChecker;
 
     @GetMapping("/me")
@@ -211,9 +213,16 @@ public class UserController {
             return Result.error("不能删除超级管理员");
         }
 
+        String agentKey = user.getAgentKey();
+
         userRoleMapper.delete(new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, id));
         userService.removeById(id);
-        log.info("用户 {} 删除了用户 {}", currentUserId, id);
+        // 用户已逻辑删除，其 Key 不再能通过认证；同步清除 UDP 屏幕帧的 agentKey -> userId 缓存，
+        // 否则旧 Key 仍能命中缓存继续推流，直到服务重启
+        if (agentKey != null) {
+            udpScreenServer.invalidateAgentKeyCache(agentKey);
+        }
+        log.info("用户 {} 删除了用户 {}，已清理其 UDP 屏幕缓存", currentUserId, id);
         return Result.success("删除成功", null);
     }
 
@@ -268,6 +277,8 @@ public class UserController {
             return Result.error("用户不存在");
         }
 
+        String oldAgentKey = user.getAgentKey();
+
         socketServer.sendCommandToUser(id, "DISCONNECT");
         try {
             Thread.sleep(500);
@@ -277,7 +288,12 @@ public class UserController {
         socketServer.kickExistingConnection(id, -1L);
 
         String newKey = userService.resetAgentKey(id);
-        log.info("用户 {} 重置了用户 {} 的 agent-key", currentUserId, id);
+        // 库里的旧 Key 已失效，同步清除 UDP 屏幕帧的 agentKey -> userId 缓存，
+        // 否则旧 Key 仍能命中缓存继续推流，直到服务重启
+        if (oldAgentKey != null) {
+            udpScreenServer.invalidateAgentKeyCache(oldAgentKey);
+        }
+        log.info("用户 {} 重置了用户 {} 的 agent-key，已清理旧 Key 的 UDP 屏幕缓存", currentUserId, id);
         return Result.success("密钥已重置", newKey);
     }
 

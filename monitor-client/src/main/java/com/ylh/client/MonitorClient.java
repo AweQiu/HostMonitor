@@ -24,11 +24,11 @@ public class MonitorClient {
     private boolean screenEnabled;
 
     public void start() {
-        Properties props = ConfigUtil.loadProperties("application.properties");
+        Properties props = ConfigUtil.loadProperties("application.yml");
         String agentKey = props.getProperty("agent.key", "");
 
         if (agentKey.isEmpty()) {
-            System.err.println("Agent key is not configured. Please set 'agent.key' in application.properties");
+            System.err.println("Agent key is not configured. Please set 'agent.key' in application.yml");
             return;
         }
 
@@ -75,9 +75,13 @@ public class MonitorClient {
                         String command = msg.getCommand();
                         System.out.println("Received command: " + command);
                         if (MessageConstants.CMD_SCREEN_START.equals(command)) {
-                            startScreenStreaming();
+                            if (screenEnabled) {
+                                startScreenStreaming();
+                            }
                         } else if (MessageConstants.CMD_SCREEN_STOP.equals(command)) {
-                            stopScreenStreaming();
+                            if (screenEnabled) {
+                                stopScreenStreaming();
+                            }
                         } else if (MessageConstants.CMD_PROCESS_RESYNC.equals(command)) {
                             if (processReporter != null) {
                                 processReporter.requestResync();
@@ -92,7 +96,10 @@ public class MonitorClient {
                 });
 
                 client.startListening();
-                System.out.println("Screen streaming is on-demand, waiting for " + MessageConstants.CMD_SCREEN_START + " command...");
+                if (screenEnabled) {
+                    System.out.println("Screen streaming is on-demand, waiting for "
+                            + MessageConstants.CMD_SCREEN_START + " command...");
+                }
             }
 
             Thread.currentThread().join();
