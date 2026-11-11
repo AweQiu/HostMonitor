@@ -254,7 +254,9 @@ public class ClientHandler implements Runnable {
                 cryptoService.deriveAesKey(authBody.clientPubKey);
                 encryptionEnabled = true;
                 log.info("[#{}] ECDH key exchange completed, encryption enabled", connectionId);
-                sendMessage(outputStream, SocketMessage.okWithPubKey("Authenticated", serverPubKey));
+                outputStream.write(SocketMessage.okWithPubKey("Authenticated", serverPubKey)
+                        .serialize().getBytes(StandardCharsets.UTF_8));
+                outputStream.flush();
             } catch (Exception e) {
                 log.error("[#{}] ECDH key exchange failed, falling back to plaintext: {}", connectionId, e.getMessage());
                 sendMessage(outputStream, SocketMessage.ok("Authenticated"));

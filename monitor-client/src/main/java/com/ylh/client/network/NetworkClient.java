@@ -26,6 +26,7 @@ public class NetworkClient {
     private Thread listenerThread;
     private volatile boolean listening = false;
     private Consumer<SocketMessage> messageHandler;
+    private final StringBuilder receiveBuffer = new StringBuilder();
 
     private CryptoService cryptoService;
     private boolean encryptionEnabled = false;
@@ -51,8 +52,7 @@ public class NetworkClient {
     }
 
     public boolean authenticate(String agentKey) throws IOException {
-        byte[] welcome = receive(4096);
-        String welcomeStr = new String(welcome, StandardCharsets.UTF_8).trim();
+        String welcomeStr = receiveLine();
         System.out.println("Server: " + welcomeStr);
 
         try {
@@ -61,8 +61,7 @@ public class NetworkClient {
             SocketMessage authMsg = SocketMessage.authWithPubKey(agentKey, clientPubKey);
             sendRaw(authMsg.serialize().getBytes(StandardCharsets.UTF_8));
 
-            byte[] authResp = receive(4096);
-            String authResult = new String(authResp, StandardCharsets.UTF_8).trim();
+            String authResult = receiveLine();
             System.out.println("Auth: " + authResult);
 
             SocketMessage resp = SocketMessage.parse(authResult);
@@ -90,8 +89,7 @@ public class NetworkClient {
             SocketMessage authMsg = SocketMessage.auth(agentKey);
             sendRaw(authMsg.serialize().getBytes(StandardCharsets.UTF_8));
 
-            byte[] authResp = receive(4096);
-            String authResult = new String(authResp, StandardCharsets.UTF_8).trim();
+            String authResult = receiveLine();
             System.out.println("Auth (plaintext): " + authResult);
 
             SocketMessage resp = SocketMessage.parse(authResult);
@@ -143,49 +141,33 @@ public class NetworkClient {
         listening = true;
 
         listenerThread = new Thread(() -> {
-            StringBuilder buffer = new StringBuilder();
-            byte[] readBuf = new byte[4096];
-
             while (listening && isConnected()) {
                 try {
-                    int bytesRead = inputStream.read(readBuf);
-                    if (bytesRead == -1) {
-                        break;
+                    String raw = receiveLine();
+                    SocketMessage msg = SocketMessage.parse(raw);
+                    if (msg == null) {
+                        continue;
                     }
 
-                    String chunk = new String(readBuf, 0, bytesRead, StandardCharsets.UTF_8);
-                    buffer.append(chunk);
-
-                    int nlIdx;
-                    while ((nlIdx = buffer.indexOf("\n")) != -1) {
-                        String raw = buffer.substring(0, nlIdx).trim();
-                        buffer.delete(0, nlIdx + 1);
-
-                        if (!raw.isEmpty()) {
-                            SocketMessage msg = SocketMessage.parse(raw);
-                            if (msg == null) continue;
-
-                            if (MessageConstants.TYPE_ENCRYPTED.equals(msg.getType())) {
-                                if (!encryptionEnabled || cryptoService == null) {
-                                    System.err.println("Received encrypted message but encryption not enabled");
-                                    continue;
-                                }
-                                String ciphertext = msg.getCiphertext();
-                                if (ciphertext == null) continue;
-                                try {
-                                    String decrypted = cryptoService.decrypt(ciphertext);
-                                    msg = SocketMessage.parse(decrypted);
-                                    if (msg == null) continue;
-                                } catch (Exception e) {
-                                    System.err.println("Failed to decrypt message: " + e.getMessage());
-                                    continue;
-                                }
-                            }
-
-                            if (messageHandler != null) {
-                                messageHandler.accept(msg);
-                            }
+                    if (MessageConstants.TYPE_ENCRYPTED.equals(msg.getType())) {
+                        if (!encryptionEnabled || cryptoService == null) {
+                            System.err.println("Received encrypted message but encryption not enabled");
+                            continue;
                         }
+                        String ciphertext = msg.getCiphertext();
+                        if (ciphertext == null) continue;
+                        try {
+                            String decrypted = cryptoService.decrypt(ciphertext);
+                            msg = SocketMessage.parse(decrypted);
+                            if (msg == null) continue;
+                        } catch (Exception e) {
+                            System.err.println("Failed to decrypt message: " + e.getMessage());
+                            continue;
+                        }
+                    }
+
+                    if (messageHandler != null) {
+                        messageHandler.accept(msg);
                     }
                 } catch (IOException e) {
                     if (listening) {
@@ -228,6 +210,7 @@ public class NetworkClient {
         inputStream = null;
         cryptoService = null;
         encryptionEnabled = false;
+        receiveBuffer.setLength(0);
     }
 
     public boolean isConnected() {
@@ -250,6 +233,33 @@ public class NetworkClient {
         byte[] result = new byte[bytesRead];
         System.arraycopy(buffer, 0, result, 0, bytesRead);
         return result;
+    }
+
+    /**
+     * 按行读取一条完整消息（以 \n 结尾）
+     * <p>读取到的多余数据会保留在缓冲区中，供后续调用继续消费，避免 TCP 粘包导致的解析错位。</p>
+     */
+    public String receiveLine() throws IOException {
+        while (true) {
+            int nlIdx = receiveBuffer.indexOf("\n");
+            if (nlIdx != -1) {
+                String line = receiveBuffer.substring(0, nlIdx).trim();
+                receiveBuffer.delete(0, nlIdx + 1);
+                if (!line.isEmpty()) {
+                    return line;
+                }
+                continue;
+            }
+            if (!isConnected()) {
+                throw new IOException("Not connected to server");
+            }
+            byte[] readBuf = new byte[8192];
+            int bytesRead = inputStream.read(readBuf);
+            if (bytesRead == -1) {
+                throw new IOException("Connection closed by server");
+            }
+            receiveBuffer.append(new String(readBuf, 0, bytesRead, StandardCharsets.UTF_8));
+        }
     }
 
     public String getHost() {

@@ -68,8 +68,11 @@ public class UdpSender {
 
         byte[] keyBytes = agentKey.getBytes(StandardCharsets.UTF_8);
         int headerSize = 4 + 4 + keyBytes.length;
-        int totalSize = headerSize + payload.length;
+        int chunkMetaSize = 8;
+        int totalSize = headerSize + chunkMetaSize + payload.length;
 
+        // 单包与分包统一携带 8 字节分包头（totalChunks + chunkIndex），
+        // 否则服务端只能用长度猜测是否分包，会把 JPEG 前 8 字节误当作分包头切掉
         if (totalSize <= MAX_UDP_SIZE) {
             byte[] packet = new byte[totalSize];
             packet[0] = (byte) (MAGIC >>> 24);
@@ -81,12 +84,22 @@ public class UdpSender {
             packet[6] = (byte) (keyBytes.length >>> 8);
             packet[7] = (byte) keyBytes.length;
             System.arraycopy(keyBytes, 0, packet, 8, keyBytes.length);
-            System.arraycopy(payload, 0, packet, headerSize, payload.length);
+
+            int pos = headerSize;
+            packet[pos++] = 0;
+            packet[pos++] = 0;
+            packet[pos++] = 0;
+            packet[pos++] = 1;
+            packet[pos++] = 0;
+            packet[pos++] = 0;
+            packet[pos++] = 0;
+            packet[pos++] = 0;
+            System.arraycopy(payload, 0, packet, pos, payload.length);
 
             DatagramPacket datagram = new DatagramPacket(packet, packet.length, serverAddress, port);
             socket.send(datagram);
         } else {
-            int chunkPayloadSize = MAX_UDP_SIZE - headerSize - 8;
+            int chunkPayloadSize = MAX_UDP_SIZE - headerSize - chunkMetaSize;
             int totalChunks = (payload.length + chunkPayloadSize - 1) / chunkPayloadSize;
 
             for (int i = 0; i < totalChunks; i++) {
