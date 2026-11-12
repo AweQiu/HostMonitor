@@ -31,8 +31,6 @@ Vue 3 前端提供可视化大屏与实时屏幕查看。
 
 ## 系统架构
 
-（保留你原来的架构图）
-
 - TCP 10801：认证、指标/进程上报、指令下发、配置推送，认证后 AES-256-GCM 加密
 - UDP 10802：屏幕帧传输，帧数据加密
 - HTTP 10800：前端常规接口；WebSocket：前端订阅屏幕画面
@@ -66,15 +64,13 @@ backend/         # 服务端：Spring Boot 3.4 + MyBatis-Plus + TCP/UDP/WebSocke
 monitor-client/  # 客户端：指标采集、进程采集、屏幕推流、加密传输
 frontend/        # 前端：Vue 3 + TypeScript + Ant Design Vue + ECharts
 sql/             # 数据库初始化脚本
-docs/            # 架构、协议、安全、数据库、接口、部署文档
+docs/            # 架构、协议、接口、部署文档
 ```
 
 ## 文档
 
-| 文档                 | 内容                           |
-| -------------------- | ------------------------------ |
-| docs/architecture.md | 系统架构、通信协议、告警流程   |
-| docs/security.md     | 认证授权、通信加密、登录防爆破 |
-| docs/database.md     | 表结构、索引、配置项           |
-| docs/api.md          | 接口清单                       |
-| docs/deployment.md   | 部署与配置说明                 |
+| 文档                 | 内容                         |
+| -------------------- | ---------------------------- |
+| docs/architecture.md | 系统架构、通信协议、告警流程 |
+| docs/api.md          | 接口清单                     |
+| docs/deployment.md   | 部署与配置说明               |

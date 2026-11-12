@@ -28,41 +28,13 @@ HostMonitor 是一个**面向内网/小组场景的主机监控与远程管理�
 
 ## 2. 总体架构
 
-```mermaid
-flowchart LR
-    subgraph 被监控主机
-        A[monitor-client<br/>采集端]
-        A1[ScreenCapture<br/>AWT Robot]
-        A2[MetricReporter<br/>OSHI]
-        A3[ProcessReporter<br/>进程快照/增量]
-    end
+### 2.1 采集端（客户端）
 
-    subgraph 服务端
-        B[SocketServer<br/>TCP 10801]
-        C[UdpScreenServer<br/>UDP 10802]
-        D[ScreenStreamManager]
-        E[ScreenWebSocketHandler<br/>/ws/screen/*hostId*]
-        F[REST API<br/>10800]
-        G[(MySQL)]
-    end
+![客户端架构](images/arch-client.png)
 
-    subgraph 浏览器
-        H[Vue3 + ECharts<br/>Canvas 渲染]
-    end
+### 2.2 服务端（后端+前端）
 
-    A1 --> A
-    A2 --> A
-    A3 --> A
-    A -- "TCP：认证/心跳/指标/进程/配置" --> B
-    A -- "UDP：屏幕 JPEG 帧" --> C
-    B --> G
-    C --> D
-    D --> E
-    E -- "WebSocket 二进制帧" --> H
-    F --> G
-    H -- "HTTP REST" --> F
-    H -- "WebSocket 订阅" --> E
-```
+![arch-server](images/arch-server.png)
 
 核心思想是**控制面与数据面分离**：
 
@@ -145,7 +117,7 @@ Vue 3.5 + TypeScript + Vite 8 + Pinia + Vue Router + Ant Design Vue + ECharts。
 
 ---
 
-## 6. 连接建立与身份认证（★ 近期修复）
+## 6. 连接建立与身份认证
 
 ### 6.1 时序
 
@@ -269,7 +241,7 @@ ENCRYPTED|{"iv":"","ciphertext":"base64(iv+cipher+tag)"}\n
 
 ---
 
-## 9. 屏幕画面链路（★ 近期修复）
+## 9. 屏幕画面链路
 
 ### 9.1 触发与生命周期
 
@@ -312,7 +284,7 @@ sequenceDiagram
 - 使用 `ImageIO` 的 JPEG `ImageWriter` + `MODE_EXPLICIT` 显式设置压缩质量。
 - 帧参数（fps、quality）**每帧从 `RuntimeConfig` 读取**，因此服务端修改配置后无需重连即可生效。
 
-### 9.3 UDP 封装（`UdpSender`，★ 近期修复）
+### 9.3 UDP 封装（`UdpSender`）
 
 每个 UDP 包结构统一如下：
 
